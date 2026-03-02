@@ -5,6 +5,7 @@ Covers:
 - SESSION_BUSY: raises GatewayError
 - BUDGET_EXCEEDED: raises GatewayError
 - session_id passthrough (not scope-resolved)
+- F1: session_id channel prefix guard
 """
 
 from __future__ import annotations
@@ -12,10 +13,12 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.agent.events import TextChunk
 from src.gateway.budget_gate import Reservation
 from src.gateway.dispatch import DEFAULT_RESERVE_EUR, dispatch_chat
+from src.gateway.protocol import ChatHistoryParams, ChatSendParams
 from src.infra.errors import GatewayError
 
 
@@ -264,3 +267,41 @@ class TestSessionIdPassthrough:
 
         assert call_kwargs_list[0]["identity"] is identity
         assert call_kwargs_list[0]["dm_scope"] == "per-channel-peer"
+
+
+# ---------------------------------------------------------------------------
+# F1: session_id channel prefix guard
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIdPrefixGuard:
+    """F1: WS cannot access channel-exclusive sessions."""
+
+    def test_chat_send_rejects_telegram_prefix(self):
+        with pytest.raises(ValidationError, match="channel-exclusive prefix"):
+            ChatSendParams(content="hi", session_id="telegram:peer:12345")
+
+    def test_chat_send_allows_normal_session(self):
+        p = ChatSendParams(content="hi", session_id="my-session")
+        assert p.session_id == "my-session"
+
+    def test_chat_send_allows_main_default(self):
+        p = ChatSendParams(content="hi")
+        assert p.session_id == "main"
+
+    def test_chat_send_rejects_peer_prefix(self):
+        """per-peer scope: WS has no identity, cannot access peer sessions."""
+        with pytest.raises(ValidationError, match="channel-exclusive prefix"):
+            ChatSendParams(content="hi", session_id="peer:12345")
+
+    def test_chat_history_rejects_telegram_prefix(self):
+        with pytest.raises(ValidationError, match="channel-exclusive prefix"):
+            ChatHistoryParams(session_id="telegram:peer:12345")
+
+    def test_chat_history_rejects_peer_prefix(self):
+        with pytest.raises(ValidationError, match="channel-exclusive prefix"):
+            ChatHistoryParams(session_id="peer:12345")
+
+    def test_chat_history_allows_normal_session(self):
+        p = ChatHistoryParams(session_id="my-session")
+        assert p.session_id == "my-session"

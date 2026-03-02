@@ -5,16 +5,19 @@ non-None _settings (compaction_settings). This covers the actual wiring,
 not just unit-level mocks.
 
 Extended (M3 post-review): tests for M3 tool wiring and ADR 0037 path validation.
+Extended (M4 post-review): F3 polling done callback tests.
 """
 
 from __future__ import annotations
 
+import asyncio
+import signal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.gateway.app import lifespan
+from src.gateway.app import _on_polling_done, _shutdown_telegram, lifespan
 
 
 def _make_mock_settings(tmp_path: Path) -> MagicMock:
@@ -43,7 +46,7 @@ def _make_mock_settings(tmp_path: Path) -> MagicMock:
     settings.memory = MemorySettings(workspace_path=tmp_path)
     settings.session = MagicMock()
     settings.session.default_mode = "chat_safe"
-    settings.telegram = TelegramSettings()  # bot_token="" → adapter not started
+    settings.telegram = TelegramSettings(bot_token="")  # force disabled regardless of env
     return settings
 
 
@@ -182,3 +185,79 @@ async def test_workspace_path_mismatch_fails(tmp_path):
         with pytest.raises(RuntimeError, match="workspace_path mismatch"):
             async with lifespan(app):
                 pass
+
+
+# ---------------------------------------------------------------------------
+# F3: _on_polling_done callback
+# ---------------------------------------------------------------------------
+
+
+class TestPollingDoneCallback:
+    """F3 unit: _on_polling_done function behavior."""
+
+    def test_sends_sigterm_on_exception(self):
+        task = asyncio.Future()
+        task.set_exception(RuntimeError("polling crashed"))
+
+        with patch("src.gateway.app.os.kill") as mock_kill:
+            _on_polling_done(task)
+            mock_kill.assert_called_once()
+            _, sig = mock_kill.call_args[0]
+            assert sig == signal.SIGTERM
+
+    def test_ignores_cancelled_task(self):
+        task = asyncio.Future()
+        task.cancel()
+        # Need to suppress the CancelledError
+        try:
+            task.result()
+        except (asyncio.CancelledError, asyncio.InvalidStateError):
+            pass
+
+        with patch("src.gateway.app.os.kill") as mock_kill:
+            _on_polling_done(task)
+            mock_kill.assert_not_called()
+
+    def test_ignores_successful_task(self):
+        task = asyncio.Future()
+        task.set_result(None)
+
+        with patch("src.gateway.app.os.kill") as mock_kill:
+            _on_polling_done(task)
+            mock_kill.assert_not_called()
+
+
+class TestTelegramShutdown:
+    """Shutdown path should not block indefinitely on Telegram polling."""
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_polling_before_stopping_adapter(self):
+        gate = asyncio.Event()
+
+        async def _poll_forever():
+            await gate.wait()
+
+        polling_task = asyncio.create_task(_poll_forever())
+        adapter = MagicMock()
+        adapter.stop = AsyncMock()
+
+        await _shutdown_telegram(adapter, polling_task, timeout_s=0.05)
+
+        assert polling_task.cancelled()
+        adapter.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_handles_stop_timeout(self):
+        async def _done():
+            return None
+
+        polling_task = asyncio.create_task(_done())
+        adapter = MagicMock()
+
+        async def _hang():
+            await asyncio.sleep(60)
+
+        adapter.stop = AsyncMock(side_effect=_hang)
+
+        await _shutdown_telegram(adapter, polling_task, timeout_s=0.01)
+        adapter.stop.assert_awaited_once()

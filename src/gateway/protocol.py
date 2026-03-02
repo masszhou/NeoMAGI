@@ -6,11 +6,27 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+# Resolver-generated session_id prefixes — WS has no auth, must not access these sessions.
+# Covers per-channel-peer ("telegram:peer:{id}") and per-peer ("peer:{id}").
+CHANNEL_EXCLUSIVE_PREFIXES = ("telegram:", "peer:")
+
 
 class ChatSendParams(BaseModel):
     content: str
     session_id: str = "main"
     provider: str | None = None  # optional: route to specific provider
+
+    @field_validator("session_id", mode="after")
+    @classmethod
+    def _reject_channel_exclusive_prefix(cls, v: str) -> str:
+        for prefix in CHANNEL_EXCLUSIVE_PREFIXES:
+            if v.startswith(prefix):
+                msg = (
+                    f"session_id with channel-exclusive prefix '{prefix}'"
+                    " cannot be accessed via WebSocket"
+                )
+                raise ValueError(msg)
+        return v
 
     @field_validator("provider", mode="before")
     @classmethod
@@ -28,6 +44,18 @@ class ChatSendParams(BaseModel):
 
 class ChatHistoryParams(BaseModel):
     session_id: str = "main"
+
+    @field_validator("session_id", mode="after")
+    @classmethod
+    def _reject_channel_exclusive_prefix(cls, v: str) -> str:
+        for prefix in CHANNEL_EXCLUSIVE_PREFIXES:
+            if v.startswith(prefix):
+                msg = (
+                    f"session_id with channel-exclusive prefix '{prefix}'"
+                    " cannot be accessed via WebSocket"
+                )
+                raise ValueError(msg)
+        return v
 
 
 class RPCRequest(BaseModel):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -44,6 +46,46 @@ from src.tools.builtins import register_builtins
 from src.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
+
+_TELEGRAM_SHUTDOWN_TIMEOUT_S = 3.0
+
+
+def _on_polling_done(task: asyncio.Task) -> None:
+    """Callback for telegram polling task: fail-fast on fatal error."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("telegram_polling_fatal", error=str(exc))
+        # fail-fast: personal agent should not silently degrade
+        os.kill(os.getpid(), signal.SIGTERM)
+
+
+async def _shutdown_telegram(
+    telegram_adapter: object | None,
+    polling_task: asyncio.Task | None,
+    *,
+    timeout_s: float = _TELEGRAM_SHUTDOWN_TIMEOUT_S,
+) -> None:
+    """Best-effort Telegram shutdown that won't block process exit indefinitely."""
+    if polling_task and not polling_task.done():
+        polling_task.cancel()
+        try:
+            await asyncio.wait_for(polling_task, timeout=timeout_s)
+        except asyncio.CancelledError:
+            pass
+        except TimeoutError:
+            logger.warning("telegram_polling_cancel_timeout", timeout_s=timeout_s)
+        except Exception:
+            logger.exception("telegram_polling_cancel_failed")
+
+    if telegram_adapter:
+        try:
+            await asyncio.wait_for(telegram_adapter.stop(), timeout=timeout_s)
+        except TimeoutError:
+            logger.warning("telegram_adapter_stop_timeout", timeout_s=timeout_s)
+        except Exception:
+            logger.exception("telegram_adapter_stop_failed")
 
 
 @asynccontextmanager
@@ -116,7 +158,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         base_url=settings.openai.base_url,
     )
     registry.register(
-        "openai", _make_agent_loop(openai_client, settings.openai.model), settings.openai.model,
+        "openai",
+        _make_agent_loop(openai_client, settings.openai.model),
+        settings.openai.model,
     )
 
     # Gemini (only when api_key is non-empty)
@@ -173,15 +217,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await telegram_adapter.check_ready()  # fail-fast on bad token
 
-        def _on_polling_done(task: asyncio.Task) -> None:
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc:
-                logger.error("telegram_polling_fatal", error=str(exc))
-
         polling_task = asyncio.create_task(
-            telegram_adapter.start_polling(), name="telegram_polling",
+            telegram_adapter.start_polling(),
+            name="telegram_polling",
         )
         polling_task.add_done_callback(_on_polling_done)
         logger.info("telegram_adapter_started", username=telegram_adapter._bot_username)
@@ -189,10 +227,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     # Cleanup: Telegram
-    if telegram_adapter:
-        await telegram_adapter.stop()
-    if polling_task and not polling_task.done():
-        polling_task.cancel()
+    await _shutdown_telegram(telegram_adapter, polling_task)
 
     # Cleanup: DB
     await engine.dispose()
@@ -263,9 +298,7 @@ async def _handle_rpc_message(websocket: WebSocket, raw: str) -> None:
         await websocket.send_text(error.model_dump_json())
 
 
-async def _handle_chat_send(
-    websocket: WebSocket, request_id: str, params: dict
-) -> None:
+async def _handle_chat_send(websocket: WebSocket, request_id: str, params: dict) -> None:
     """Handle chat.send: delegate to dispatch_chat, stream events over WebSocket."""
     try:
         parsed = ChatSendParams.model_validate(params)
@@ -323,11 +356,12 @@ async def _handle_chat_send(
     await websocket.send_text(done_chunk.model_dump_json())
 
 
-async def _handle_chat_history(
-    websocket: WebSocket, request_id: str, params: dict
-) -> None:
+async def _handle_chat_history(websocket: WebSocket, request_id: str, params: dict) -> None:
     """Handle chat.history: return session message history."""
-    parsed = ChatHistoryParams.model_validate(params)
+    try:
+        parsed = ChatHistoryParams.model_validate(params)
+    except ValidationError as e:
+        raise GatewayError(str(e), code="INVALID_PARAMS") from e
     session_manager: SessionManager = websocket.app.state.session_manager
 
     # [Decision 0019] chat.history only returns display-safe messages (user/assistant).
