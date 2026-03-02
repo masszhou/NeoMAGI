@@ -29,10 +29,7 @@ class DatabaseSettings(BaseSettings):
     @classmethod
     def _validate_schema(cls, v: str) -> str:
         if v != DB_SCHEMA:
-            msg = (
-                f"DATABASE_SCHEMA must be '{DB_SCHEMA}' "
-                f"(got '{v}'). See ADR 0017."
-            )
+            msg = f"DATABASE_SCHEMA must be '{DB_SCHEMA}' (got '{v}'). See ADR 0017."
             raise ValueError(msg)
         return v
 
@@ -55,7 +52,9 @@ class GatewaySettings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 19789
     session_claim_ttl_seconds: int = Field(
-        300, gt=0, le=3600,
+        300,
+        gt=0,
+        le=3600,
         validation_alias="GATEWAY_SESSION_CLAIM_TTL_SECONDS",
     )
 
@@ -73,8 +72,7 @@ class SessionSettings(BaseSettings):
     def _validate_default_mode(cls, v: str) -> str:
         if v != "chat_safe":
             raise ValueError(
-                f"SESSION_DEFAULT_MODE must be 'chat_safe' in M1.5 "
-                f"(got '{v}'). See ADR 0025."
+                f"SESSION_DEFAULT_MODE must be 'chat_safe' in M1.5 (got '{v}'). See ADR 0025."
             )
         return v
 
@@ -175,7 +173,7 @@ class TelegramSettings(BaseSettings):
     bot_token: str = ""  # empty = channel disabled
     dm_scope: str = "per-channel-peer"
     allowed_user_ids: str = ""  # comma-separated Telegram user ID whitelist
-    message_max_length: int = 4096
+    message_max_length: int = Field(default=4096, ge=1, le=4096)
 
     @field_validator("dm_scope")
     @classmethod

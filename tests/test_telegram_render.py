@@ -95,6 +95,47 @@ class TestSplitMessage:
         assert all(len(p) <= 15 for p in parts)
 
 
+class TestCodeBlockLongLine:
+    """F2: ultra-long single line in code block must be hard-cut."""
+
+    def test_single_long_line_split(self):
+        """A 5000-char single line in a code block should produce multiple valid chunks."""
+        long_line = "x" * 5000
+        block = f"```\n{long_line}\n```"
+        chunks = split_message(block, max_length=200)
+        for chunk in chunks:
+            assert len(chunk) <= 200
+            assert chunk.startswith("```")
+            assert chunk.endswith("```")
+
+    def test_mixed_normal_and_long_lines(self):
+        """Normal lines and a long line in the same code block."""
+        lines = ["short line 1", "a" * 3000, "short line 2"]
+        block = "```python\n" + "\n".join(lines) + "\n```"
+        chunks = split_message(block, max_length=500)
+        for chunk in chunks:
+            assert len(chunk) <= 500
+
+    def test_long_line_preserves_content(self):
+        """All content from the long line is present across chunks."""
+        long_line = "".join(str(i % 10) for i in range(1000))
+        block = f"```\n{long_line}\n```"
+        chunks = split_message(block, max_length=200)
+        # Extract content between fences
+        content = ""
+        for chunk in chunks:
+            inner = chunk.removeprefix("```\n").removesuffix("\n```")
+            content += inner
+        assert content == long_line
+
+    def test_tiny_limit_never_exceeds_max_length(self):
+        """Even tiny configured limits must not produce oversized chunks."""
+        block = "```\n" + ("A" * 50) + "\n```"
+        chunks = split_message(block, max_length=1)
+        assert chunks
+        assert all(len(chunk) <= 1 for chunk in chunks)
+
+
 # ── format_for_telegram ──────────────────────────────────────────────────────
 
 

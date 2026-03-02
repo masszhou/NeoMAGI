@@ -106,7 +106,10 @@ def _split_code_block(block: str, max_length: int) -> list[str]:
 
     body_lines = body.split("\n")
     overhead = len(header) + len(footer) + 2  # newlines after header / before footer
-    effective = max(max_length - overhead, 20)
+    effective = max_length - overhead
+
+    if effective <= 0:
+        return [block[i : i + max_length] for i in range(0, len(block), max_length)]
 
     chunks: list[str] = []
     current: list[str] = []
@@ -114,6 +117,16 @@ def _split_code_block(block: str, max_length: int) -> list[str]:
 
     for line in body_lines:
         line_len = len(line) + 1  # +1 for \n
+        if line_len > effective:
+            # F2: ultra-long single line — flush current, then hard cut
+            if current:
+                chunks.append(header + "\n" + "\n".join(current) + "\n" + footer)
+                current = []
+                current_len = 0
+            for i in range(0, len(line), effective):
+                chunk_line = line[i : i + effective]
+                chunks.append(header + "\n" + chunk_line + "\n" + footer)
+            continue
         if current_len + line_len > effective and current:
             chunks.append(header + "\n" + "\n".join(current) + "\n" + footer)
             current = []
