@@ -30,8 +30,10 @@
 ## 3. 场景化按需加载
 
 - 记忆系统相关：
+  - `design_docs/memory_architecture_v2.md`
+  - 适用：memory 长期原则、workspace 真源、检索层定位、memory kernel / applications 分层
   - `design_docs/memory_architecture.md`
-  - 适用：memory 写入/检索、M2-M3 衔接、记忆边界讨论
+  - 适用：M2-M3 阶段的历史规划背景与早期记忆边界讨论
 
 - Prompt 文件体系相关：
   - `design_docs/system_prompt.md`
@@ -46,10 +48,12 @@
 
 - `design_docs/roadmap_milestones.md`（v1）
 - `design_docs/roadmap_milestones_v2.md`（v2）
+- `design_docs/memory_architecture.md`（memory v1）
 
 说明：
 - 历史文档用于回溯，不作为当前计划的默认依据。
 - 当前 roadmap 以 `roadmap_milestones_v3.md` 为准。
+- 当前 memory 原则文档以 `design_docs/memory_architecture_v2.md` 为准。
 
 ## 5. 与其他目录的关系
 
