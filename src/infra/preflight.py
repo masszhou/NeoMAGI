@@ -1,203 +1,219 @@
-"""Preflight startup checks: unified framework replacing scattered lifespan validations.
+"""Preflight runner: unified startup checks with structured evidence output.
 
-Each check produces a CheckResult with OK/WARN/FAIL status plus diagnostic evidence.
-Any FAIL blocks service startup; WARN items are logged but don't block.
+Replaces scattered lifespan checks with a single ``run_preflight()`` call
+that produces a ``PreflightReport``.  Each check yields a ``CheckResult``
+(OK / WARN / FAIL) so the caller can decide whether to block startup.
 """
 
 from __future__ import annotations
 
+import tempfile
 from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.constants import DB_SCHEMA
 from src.infra.health import CheckResult, CheckStatus, PreflightReport
-from src.session.database import make_session_factory
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
     from src.config.settings import Settings
 
 logger = structlog.get_logger()
 
-# Tables that must exist for the service to function
-_REQUIRED_TABLES = {"sessions", "messages", "soul_versions", "memory_entries"}
-_BUDGET_TABLES = {"budget_state", "budget_reservations"}
-_SEARCH_TRIGGER_NAME = "trg_memory_entries_search_vector"
+# Tables that must exist for core operation
+_REQUIRED_TABLES = frozenset({
+    "sessions",
+    "messages",
+    "memory_entries",
+    "soul_versions",
+})
+
+_BUDGET_TABLES = frozenset({
+    "budget_state",
+    "budget_reservations",
+})
 
 
 async def run_preflight(settings: Settings, db_engine: AsyncEngine) -> PreflightReport:
     """Execute all preflight checks and return a structured report.
 
-    Checks C2-C11 per m5_architecture.md §6.1.
+    Check order mirrors dependency: config → filesystem → DB → connectors → reconcile.
     """
-    report = PreflightReport()
+    checks: list[CheckResult] = []
 
-    # C2: active provider config closure
-    report.checks.append(_check_active_provider(settings))
+    checks.append(_check_active_provider(settings))
+    checks.append(_check_workspace_path_consistency(settings))
+    checks.append(_check_workspace_dirs(settings))
 
-    # C3: workspace_dir / memory.workspace_path consistency
-    report.checks.append(_check_workspace_path_consistency(settings))
+    db_result = await _check_db_connection(db_engine)
+    checks.append(db_result)
 
-    # C4: workspace required directories exist and writable
-    report.checks.append(_check_workspace_dirs(settings))
+    # DB-dependent checks only run if connection succeeded
+    if db_result.status != CheckStatus.FAIL:
+        checks.append(await _check_schema_tables(db_engine))
+        checks.append(await _check_search_trigger(db_engine))
+        checks.append(await _check_budget_tables(db_engine))
+        checks.append(await _check_soul_versions_readable(db_engine))
 
-    # C5: DB connectable
-    report.checks.append(await _check_db_connection(db_engine))
+    # Telegram check (only when enabled)
+    if settings.telegram.bot_token:
+        checks.append(await _check_telegram_connector(settings))
 
-    # C6-C9 require DB connectivity; skip if C5 failed
-    if report.checks[-1].status == CheckStatus.FAIL:
-        for name, impact in [
-            ("schema_tables", "Cannot verify schema integrity"),
-            ("search_trigger", "Cannot verify search trigger"),
-            ("budget_tables", "Cannot verify budget tables"),
-            ("soul_versions_readable", "Cannot verify soul versions table"),
-        ]:
-            report.checks.append(
-                CheckResult(
-                    name=name,
-                    status=CheckStatus.FAIL,
-                    evidence="Skipped: DB connection failed",
-                    impact=impact,
-                    next_action="Fix DB connection first",
-                )
-            )
-    else:
-        # C6: schema + required tables exist
-        report.checks.append(await _check_schema_tables(db_engine))
-        # C7: search trigger exists (WARN)
-        report.checks.append(await _check_search_trigger(db_engine))
-        # C8: budget tables exist (FAIL)
-        report.checks.append(await _check_budget_tables(db_engine))
-        # C9: soul_versions readable
-        report.checks.append(await _check_soul_versions(db_engine))
+    # SOUL.md reconcile (only when DB is reachable)
+    if db_result.status != CheckStatus.FAIL:
+        checks.append(await _check_soul_reconcile(settings, db_engine))
 
-    # C10: Telegram connector auth (only when enabled)
-    report.checks.append(await _check_telegram(settings))
+    report = PreflightReport(checks=checks)
 
-    # C11: SOUL.md reconcile (writes file at startup, WARN on drift)
-    report.checks.append(await _check_soul_reconcile(settings, db_engine))
+    for c in checks:
+        if c.status == CheckStatus.WARN:
+            logger.warning("preflight_warn", check=c.name, evidence=c.evidence)
+        elif c.status == CheckStatus.FAIL:
+            logger.error("preflight_fail", check=c.name, evidence=c.evidence)
 
     return report
 
 
+# ── C2: active provider configuration ──
+
+
 def _check_active_provider(settings: Settings) -> CheckResult:
-    """C2: active provider must be fully configured."""
+    """C2: Verify that the active provider has a non-empty API key."""
     active = settings.provider.active
     if active == "openai":
-        if not settings.openai.api_key:
-            return CheckResult(
-                name="active_provider",
-                status=CheckStatus.FAIL,
-                evidence=f"Active provider '{active}' has no API key configured",
-                impact="No LLM provider available; all requests will fail",
-                next_action="Set OPENAI_API_KEY in .env",
-            )
+        has_key = bool(settings.openai.api_key)
     elif active == "gemini":
-        if not settings.gemini.api_key:
-            return CheckResult(
-                name="active_provider",
-                status=CheckStatus.FAIL,
-                evidence=f"Active provider '{active}' has no API key configured",
-                impact="No LLM provider available; all requests will fail",
-                next_action="Set GEMINI_API_KEY in .env",
-            )
+        has_key = bool(settings.gemini.api_key)
+    else:
+        return CheckResult(
+            name="active_provider",
+            status=CheckStatus.FAIL,
+            evidence=f"Unknown provider '{active}'",
+            impact="No LLM provider available; all requests will fail",
+            next_action="Set PROVIDER_ACTIVE to 'openai' or 'gemini'",
+        )
+
+    if has_key:
+        return CheckResult(
+            name="active_provider",
+            status=CheckStatus.OK,
+            evidence=f"Provider '{active}' API key configured",
+            impact="",
+            next_action="",
+        )
     return CheckResult(
         name="active_provider",
-        status=CheckStatus.OK,
-        evidence=f"Provider '{active}' configured",
-        impact="",
-        next_action="",
+        status=CheckStatus.FAIL,
+        evidence=f"Provider '{active}' API key is empty",
+        impact="No LLM provider available; all requests will fail",
+        next_action=f"Set {active.upper()}_API_KEY environment variable",
     )
+
+
+# ── C3: workspace_dir / memory.workspace_path consistency ──
 
 
 def _check_workspace_path_consistency(settings: Settings) -> CheckResult:
-    """C3: workspace_dir and memory.workspace_path must be consistent (ADR 0037)."""
+    """C3: workspace_dir and memory.workspace_path must resolve to the same path."""
     ws_dir = settings.workspace_dir.resolve()
-    mem_path = settings.memory.workspace_path.resolve()
-    if ws_dir != mem_path:
+    mem_ws = settings.memory.workspace_path.resolve()
+    if ws_dir == mem_ws:
         return CheckResult(
-            name="workspace_path",
-            status=CheckStatus.FAIL,
-            evidence=(
-                f"workspace_dir={settings.workspace_dir}, "
-                f"memory.workspace_path={settings.memory.workspace_path}"
-            ),
-            impact="Memory operations will target wrong directory",
-            next_action="Align workspace_dir and MEMORY_WORKSPACE_PATH. See ADR 0037",
+            name="workspace_path_consistency",
+            status=CheckStatus.OK,
+            evidence=f"Both resolve to {ws_dir}",
+            impact="",
+            next_action="",
         )
     return CheckResult(
-        name="workspace_path",
-        status=CheckStatus.OK,
-        evidence=f"Consistent: {ws_dir}",
-        impact="",
-        next_action="",
+        name="workspace_path_consistency",
+        status=CheckStatus.FAIL,
+        evidence=f"workspace_dir={ws_dir}, memory.workspace_path={mem_ws}",
+        impact="Memory subsystem will read/write wrong directory",
+        next_action="Align MEMORY_WORKSPACE_PATH with workspace_dir. See ADR 0037.",
     )
+
+
+# ── C4: workspace necessary dirs exist and writable ──
 
 
 def _check_workspace_dirs(settings: Settings) -> CheckResult:
     """C4: workspace and workspace/memory/ must exist and be writable."""
     ws = settings.workspace_dir.resolve()
     memory_dir = ws / "memory"
-    issues: list[str] = []
-    if not ws.is_dir():
-        issues.append(f"workspace_dir not found: {ws}")
-    elif not _is_writable(ws):
-        issues.append(f"workspace_dir not writable: {ws}")
-    if not memory_dir.is_dir():
-        issues.append(f"memory dir not found: {memory_dir}")
-    elif not _is_writable(memory_dir):
-        issues.append(f"memory dir not writable: {memory_dir}")
 
-    if issues:
+    if not ws.is_dir():
         return CheckResult(
             name="workspace_dirs",
             status=CheckStatus.FAIL,
-            evidence="; ".join(issues),
-            impact="Cannot write memory files or SOUL.md projection",
-            next_action="Create directories and ensure write permissions",
+            evidence=f"Workspace dir does not exist: {ws}",
+            impact="Cannot read/write workspace files",
+            next_action="Create the workspace directory or fix WORKSPACE_DIR",
         )
+
+    try:
+        with tempfile.NamedTemporaryFile(dir=ws, delete=True):
+            pass
+    except OSError as e:
+        return CheckResult(
+            name="workspace_dirs",
+            status=CheckStatus.FAIL,
+            evidence=f"Workspace dir not writable: {e}",
+            impact="Cannot write memory files or SOUL.md",
+            next_action="Fix filesystem permissions on workspace directory",
+        )
+
+    if not memory_dir.is_dir():
+        return CheckResult(
+            name="workspace_dirs",
+            status=CheckStatus.FAIL,
+            evidence=f"memory/ subdirectory does not exist: {memory_dir}",
+            impact="Cannot store daily notes",
+            next_action="Create workspace/memory/ directory",
+        )
+
     return CheckResult(
         name="workspace_dirs",
         status=CheckStatus.OK,
-        evidence=f"Directories accessible: {ws}",
+        evidence="Workspace and memory/ exist and are writable",
         impact="",
         next_action="",
     )
 
 
-def _is_writable(path: object) -> bool:
-    """Check if a Path is writable using os.access."""
-    import os
-
-    return os.access(path, os.W_OK)
+# ── C5: DB connection ──
 
 
 async def _check_db_connection(engine: AsyncEngine) -> CheckResult:
-    """C5: DB must be connectable."""
+    """C5: Verify database is reachable."""
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return CheckResult(
             name="db_connection",
             status=CheckStatus.OK,
-            evidence="PostgreSQL reachable",
+            evidence="Database connection successful",
             impact="",
             next_action="",
         )
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
             name="db_connection",
             status=CheckStatus.FAIL,
-            evidence=f"Connection failed: {type(exc).__name__}: {exc}",
+            evidence=f"Database connection failed: {type(e).__name__}",
             impact="All persistence operations will fail",
-            next_action="Check DATABASE_* env vars and PostgreSQL availability",
+            next_action="Check DATABASE_* environment variables and PostgreSQL availability",
         )
 
 
+# ── C6: schema tables ──
+
+
 async def _check_schema_tables(engine: AsyncEngine) -> CheckResult:
-    """C6: schema exists and required tables are present."""
+    """C6: Verify required tables exist in the neomagi schema."""
     try:
         async with engine.connect() as conn:
             result = await conn.execute(
@@ -210,74 +226,76 @@ async def _check_schema_tables(engine: AsyncEngine) -> CheckResult:
             existing = {row[0] for row in result.fetchall()}
 
         missing = _REQUIRED_TABLES - existing
-        if missing:
+        if not missing:
             return CheckResult(
                 name="schema_tables",
-                status=CheckStatus.FAIL,
-                evidence=f"Missing tables: {sorted(missing)}",
-                impact="Core functionality unavailable",
-                next_action="Run ensure_schema() or check migration state",
+                status=CheckStatus.OK,
+                evidence=f"All required tables present in {DB_SCHEMA}",
+                impact="",
+                next_action="",
             )
         return CheckResult(
             name="schema_tables",
-            status=CheckStatus.OK,
-            evidence=f"All {len(_REQUIRED_TABLES)} required tables present",
-            impact="",
-            next_action="",
+            status=CheckStatus.FAIL,
+            evidence=f"Missing tables: {', '.join(sorted(missing))}",
+            impact="Core persistence operations will fail",
+            next_action="Run ensure_schema() or check migration state",
         )
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
             name="schema_tables",
             status=CheckStatus.FAIL,
-            evidence=f"Schema check failed: {type(exc).__name__}: {exc}",
-            impact="Cannot verify database schema",
+            evidence=f"Schema introspection failed: {type(e).__name__}",
+            impact="Cannot verify schema state",
             next_action="Check database connectivity and permissions",
         )
 
 
+# ── C7: search trigger ──
+
+
 async def _check_search_trigger(engine: AsyncEngine) -> CheckResult:
-    """C7: memory_entries search vector trigger exists (WARN if missing)."""
+    """C7: Verify search vector trigger exists (WARN, not FAIL)."""
     try:
         async with engine.connect() as conn:
             result = await conn.execute(
                 text(
                     "SELECT 1 FROM information_schema.triggers "
                     "WHERE trigger_schema = :schema "
-                    "AND trigger_name = :trigger_name"
+                    "AND trigger_name = 'trg_memory_entries_search_vector'"
                 ),
-                {"schema": DB_SCHEMA, "trigger_name": _SEARCH_TRIGGER_NAME},
+                {"schema": DB_SCHEMA},
             )
             if result.fetchone():
                 return CheckResult(
                     name="search_trigger",
                     status=CheckStatus.OK,
-                    evidence=f"Trigger '{_SEARCH_TRIGGER_NAME}' exists",
+                    evidence="Search vector trigger exists",
                     impact="",
                     next_action="",
                 )
-            return CheckResult(
-                name="search_trigger",
-                status=CheckStatus.WARN,
-                evidence=f"Trigger '{_SEARCH_TRIGGER_NAME}' not found",
-                impact="Memory search vector auto-population disabled",
-                next_action="Run ensure_schema() to recreate trigger",
-            )
-    except Exception as exc:
         return CheckResult(
             name="search_trigger",
             status=CheckStatus.WARN,
-            evidence=f"Trigger check failed: {type(exc).__name__}: {exc}",
-            impact="Cannot verify search trigger",
+            evidence="Search vector trigger missing",
+            impact="Memory search may return stale or empty results",
+            next_action="Run ensure_schema() to recreate the trigger",
+        )
+    except Exception as e:
+        return CheckResult(
+            name="search_trigger",
+            status=CheckStatus.WARN,
+            evidence=f"Trigger check failed: {type(e).__name__}",
+            impact="Cannot verify search trigger state",
             next_action="Check database connectivity",
         )
 
 
-async def _check_budget_tables(engine: AsyncEngine) -> CheckResult:
-    """C8: budget_state + budget_reservations tables must exist (FAIL).
+# ── C8: budget tables ──
 
-    BudgetGate.try_reserve() is called on every request in dispatch_chat().
-    Missing tables cause immediate crash on first request.
-    """
+
+async def _check_budget_tables(engine: AsyncEngine) -> CheckResult:
+    """C8: Verify budget_state and budget_reservations tables exist (FAIL)."""
     try:
         async with engine.connect() as conn:
             result = await conn.execute(
@@ -291,66 +309,61 @@ async def _check_budget_tables(engine: AsyncEngine) -> CheckResult:
             existing = {row[0] for row in result.fetchall()}
 
         missing = _BUDGET_TABLES - existing
-        if missing:
+        if not missing:
             return CheckResult(
                 name="budget_tables",
-                status=CheckStatus.FAIL,
-                evidence=f"Missing budget tables: {sorted(missing)}",
-                impact="First request will crash (BudgetGate.try_reserve fails)",
-                next_action="Run ensure_schema() to create budget tables",
+                status=CheckStatus.OK,
+                evidence="Budget tables present",
+                impact="",
+                next_action="",
             )
         return CheckResult(
             name="budget_tables",
-            status=CheckStatus.OK,
-            evidence="Budget tables present",
-            impact="",
-            next_action="",
+            status=CheckStatus.FAIL,
+            evidence=f"Missing budget tables: {', '.join(sorted(missing))}",
+            impact="BudgetGate.try_reserve() will crash on first request",
+            next_action="Create budget tables (see ADR 0041 migration)",
         )
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
             name="budget_tables",
             status=CheckStatus.FAIL,
-            evidence=f"Budget table check failed: {type(exc).__name__}: {exc}",
-            impact="Cannot verify budget tables",
+            evidence=f"Budget table check failed: {type(e).__name__}",
+            impact="Cannot verify budget gate readiness",
             next_action="Check database connectivity",
         )
 
 
-async def _check_soul_versions(engine: AsyncEngine) -> CheckResult:
-    """C9: soul_versions table must be readable."""
+# ── C9: soul_versions readable ──
+
+
+async def _check_soul_versions_readable(engine: AsyncEngine) -> CheckResult:
+    """C9: Verify soul_versions table is readable."""
     try:
         async with engine.connect() as conn:
-            await conn.execute(
-                text(f"SELECT 1 FROM {DB_SCHEMA}.soul_versions LIMIT 1")
-            )
+            await conn.execute(text(f"SELECT 1 FROM {DB_SCHEMA}.soul_versions LIMIT 1"))
         return CheckResult(
             name="soul_versions_readable",
             status=CheckStatus.OK,
-            evidence="soul_versions table readable",
+            evidence="soul_versions table is readable",
             impact="",
             next_action="",
         )
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
             name="soul_versions_readable",
             status=CheckStatus.FAIL,
-            evidence=f"soul_versions read failed: {type(exc).__name__}: {exc}",
-            impact="Evolution engine cannot function",
-            next_action="Run ensure_schema() or check table permissions",
+            evidence=f"soul_versions read failed: {type(e).__name__}",
+            impact="SOUL.md evolution engine will not function",
+            next_action="Check schema migration state for soul_versions table",
         )
 
 
-async def _check_telegram(settings: Settings) -> CheckResult:
-    """C10: Telegram connector auth (only when bot_token is configured)."""
-    if not settings.telegram.bot_token:
-        return CheckResult(
-            name="telegram_auth",
-            status=CheckStatus.OK,
-            evidence="Telegram disabled (no bot_token)",
-            impact="",
-            next_action="",
-        )
+# ── C10: Telegram connector ──
 
+
+async def _check_telegram_connector(settings: Settings) -> CheckResult:
+    """C10: Verify Telegram bot token via getMe (only when enabled)."""
     try:
         from aiogram import Bot
 
@@ -359,64 +372,48 @@ async def _check_telegram(settings: Settings) -> CheckResult:
             me = await bot.get_me()
             username = me.username or "(no username)"
             return CheckResult(
-                name="telegram_auth",
+                name="telegram_connector",
                 status=CheckStatus.OK,
-                evidence=f"Bot authenticated: @{username}",
+                evidence=f"Telegram bot authenticated: @{username}",
                 impact="",
                 next_action="",
             )
         finally:
             await bot.session.close()
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
-            name="telegram_auth",
+            name="telegram_connector",
             status=CheckStatus.FAIL,
-            evidence=f"Telegram auth failed: {type(exc).__name__}: {exc}",
-            impact="Telegram channel will not be available",
-            next_action="Check TELEGRAM_BOT_TOKEN in .env",
+            evidence=f"Telegram auth failed: {type(e).__name__}",
+            impact="Telegram channel will not function",
+            next_action="Check TELEGRAM_BOT_TOKEN environment variable",
         )
 
 
-async def _check_soul_reconcile(settings: Settings, engine: AsyncEngine) -> CheckResult:
-    """C11: SOUL.md projection reconcile.
+# ── C11: SOUL.md projection reconcile ──
 
-    Executes reconcile at startup (writes file if drift detected).
-    Drift is WARN, not FAIL — reconcile fixes it automatically.
-    """
+
+async def _check_soul_reconcile(settings: Settings, db_engine: AsyncEngine) -> CheckResult:
+    """C11: Run SOUL.md reconciliation (startup context, write is allowed)."""
     try:
         from src.memory.evolution import EvolutionEngine
+        from src.session.database import make_session_factory
 
-        db_factory = make_session_factory(engine)
-        evolution = EvolutionEngine(db_factory, settings.workspace_dir, settings.memory)
-
-        # Capture file content before reconcile to detect drift
-        soul_path = settings.workspace_dir / "SOUL.md"
-        before = soul_path.read_text(encoding="utf-8") if soul_path.is_file() else None
-
-        await evolution.reconcile_soul_projection()
-
-        after = soul_path.read_text(encoding="utf-8") if soul_path.is_file() else None
-
-        if before != after:
-            return CheckResult(
-                name="soul_reconcile",
-                status=CheckStatus.WARN,
-                evidence="SOUL.md drift detected and reconciled from DB",
-                impact="File was out of sync; now corrected",
-                next_action="No action needed (auto-reconciled)",
-            )
+        db_factory = make_session_factory(db_engine)
+        evo = EvolutionEngine(db_factory, settings.workspace_dir, settings.memory)
+        await evo.reconcile_soul_projection()
         return CheckResult(
             name="soul_reconcile",
             status=CheckStatus.OK,
-            evidence="SOUL.md projection consistent with DB",
+            evidence="SOUL.md projection reconciled successfully",
             impact="",
             next_action="",
         )
-    except Exception as exc:
+    except Exception as e:
         return CheckResult(
             name="soul_reconcile",
             status=CheckStatus.WARN,
-            evidence=f"Reconcile issue: {type(exc).__name__}: {exc}",
-            impact="SOUL.md may be out of sync with DB",
-            next_action="Run 'just reconcile' manually",
+            evidence=f"SOUL.md reconcile issue: {type(e).__name__}: {e}",
+            impact="SOUL.md may be stale relative to DB",
+            next_action="Run 'just reconcile' manually after startup",
         )

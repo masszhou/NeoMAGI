@@ -1,25 +1,26 @@
-"""Preflight health check data models.
+"""Health check data models for preflight and doctor subsystems.
 
-Provides structured result types for startup and diagnostic checks.
+CheckStatus / CheckResult / PreflightReport — structured evidence output
+for startup checks (preflight) and runtime diagnostics (doctor).
 """
 
 from __future__ import annotations
 
+import enum
 from dataclasses import dataclass, field
-from enum import Enum
 
 
-class CheckStatus(Enum):
-    """Three-state check outcome."""
+class CheckStatus(enum.Enum):
+    """Three-state health check outcome."""
 
     OK = "ok"
     WARN = "warn"
     FAIL = "fail"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CheckResult:
-    """Single check outcome with diagnostic evidence."""
+    """Single health check outcome with diagnostic evidence."""
 
     name: str
     status: CheckStatus
@@ -30,21 +31,20 @@ class CheckResult:
 
 @dataclass
 class PreflightReport:
-    """Aggregated preflight results."""
+    """Aggregated preflight check results."""
 
     checks: list[CheckResult] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        """True if no FAIL checks exist."""
+        """True only when no check has FAIL status."""
         return all(c.status != CheckStatus.FAIL for c in self.checks)
 
     def summary(self) -> str:
         """Format a human-readable summary of all checks."""
         lines: list[str] = []
         for c in self.checks:
-            icon = {"ok": "OK", "warn": "WARN", "fail": "FAIL"}[c.status.value]
-            lines.append(f"  [{icon}] {c.name}: {c.evidence}")
-        status = "PASSED" if self.passed else "FAILED"
-        header = f"Preflight {status} ({len(self.checks)} checks)"
-        return "\n".join([header, *lines])
+            lines.append(f"[{c.status.value.upper():4s}] {c.name}: {c.evidence}")
+        status = "PASS" if self.passed else "FAIL"
+        lines.append(f"--- preflight {status} ({len(self.checks)} checks) ---")
+        return "\n".join(lines)

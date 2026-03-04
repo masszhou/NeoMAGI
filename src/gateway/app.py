@@ -37,7 +37,6 @@ from src.infra.errors import GatewayError, NeoMAGIError
 from src.infra.health import CheckStatus
 from src.infra.logging import setup_logging
 from src.infra.preflight import run_preflight
-from src.memory.evolution import EvolutionEngine
 from src.memory.indexer import MemoryIndexer
 from src.memory.searcher import MemorySearcher
 from src.memory.writer import MemoryWriter
@@ -95,15 +94,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: initialize shared state on startup."""
     setup_logging(json_output=False)
 
-    # [M5] Structured error wrapping for config validation
+    # Settings validation — structured logging on config errors
     try:
         settings = get_settings()
-    except ValidationError as exc:
-        logger.error(
-            "settings_validation_failed",
-            errors=exc.errors(),
-            error_count=exc.error_count(),
-        )
+    except ValidationError as e:
+        for err in e.errors():
+            logger.error(
+                "settings_validation_error",
+                field=".".join(str(loc) for loc in err["loc"]),
+                error_type=err["type"],
+                message=err["msg"],
+            )
         raise
 
     # [Decision 0020] DB is mandatory; startup fails if DB/schema unavailable.
@@ -112,35 +113,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db_session_factory = make_session_factory(engine)
     logger.info("db_connected")
 
-    # [M5] Unified preflight: replaces scattered startup checks
+    # Preflight checks — unified startup validation (M5)
     preflight_report = await run_preflight(settings, engine)
-    for check in preflight_report.checks:
-        if check.status == CheckStatus.WARN:
-            logger.warning(
-                "preflight_warn",
-                check=check.name,
-                evidence=check.evidence,
-                impact=check.impact,
-                next_action=check.next_action,
-            )
-        elif check.status == CheckStatus.FAIL:
-            logger.error(
-                "preflight_fail",
-                check=check.name,
-                evidence=check.evidence,
-                impact=check.impact,
-                next_action=check.next_action,
-            )
+    app.state.preflight_report = preflight_report
+    logger.info("preflight_complete", passed=preflight_report.passed)
 
     if not preflight_report.passed:
         failed = [c for c in preflight_report.checks if c.status == CheckStatus.FAIL]
         raise RuntimeError(
-            f"Preflight failed ({len(failed)} FAIL checks): "
+            f"Preflight failed ({len(failed)} check(s)): "
             + "; ".join(f"{c.name}: {c.evidence}" for c in failed)
         )
-
-    logger.info("preflight_passed", summary=preflight_report.summary())
-    app.state.preflight_report = preflight_report
 
     # Provider-agnostic shared deps
     session_manager = SessionManager(
@@ -152,9 +135,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     memory_indexer = MemoryIndexer(db_session_factory, settings.memory)
     memory_searcher = MemorySearcher(db_session_factory, settings.memory)
     memory_writer = MemoryWriter(settings.workspace_dir, settings.memory, indexer=memory_indexer)
-    evolution_engine = EvolutionEngine(db_session_factory, settings.workspace_dir, settings.memory)
 
-    # Note: SOUL.md reconcile already executed by preflight C11
+    from src.memory.evolution import EvolutionEngine
+
+    evolution_engine = EvolutionEngine(db_session_factory, settings.workspace_dir, settings.memory)
 
     tool_registry = ToolRegistry()
     register_builtins(
@@ -207,8 +191,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         logger.info("gemini_provider_registered", model=settings.gemini.model)
 
-    # Note: active provider already validated by preflight C2
-
     # Budget gate (ADR 0041)
     budget_gate = BudgetGate(engine, schema=settings.database.schema_)
 
@@ -226,7 +208,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     # Telegram adapter (optional: only when bot_token is configured)
-    # Note: token already verified by preflight C10; check_ready initializes _bot_username
+    # Preflight C10 already verified the token; check_ready() here
+    # initializes adapter internal state (_bot_username).
     telegram_adapter = None
     polling_task = None
     if settings.telegram.bot_token:
