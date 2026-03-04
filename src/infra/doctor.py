@@ -36,6 +36,37 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
+def _count_curated_sections(content: str) -> int:
+    """Count ## header sections with non-empty body.
+
+    Must match MemoryIndexer._split_by_headers() + index_curated_memory()
+    filtering logic: only sections whose body.strip() is truthy are counted.
+    """
+    if not content.strip():
+        return 0
+
+    count = 0
+    current_title = ""
+    body_lines: list[str] = []
+
+    for line in content.split("\n"):
+        if line.startswith("## "):
+            if (current_title or body_lines) and "\n".join(body_lines).strip():
+                count += 1
+            current_title = line[3:].strip()
+            body_lines = []
+        elif line.startswith("# ") and not current_title:
+            current_title = line[2:].strip()
+            body_lines = []
+        else:
+            body_lines.append(line)
+
+    if (current_title or body_lines) and "\n".join(body_lines).strip():
+        count += 1
+
+    return count
+
+
 async def run_doctor(
     settings: Settings, db_engine: AsyncEngine, *, deep: bool = False
 ) -> DoctorReport:
@@ -212,8 +243,7 @@ async def _check_memory_index_health(
         if memory_md.is_file():
             content = memory_md.read_text(encoding="utf-8").strip()
             if content:
-                sections = re.split(r"^---$", content, flags=re.MULTILINE)
-                file_count += sum(1 for s in sections if s.strip())
+                file_count += _count_curated_sections(content)
 
         if db_count == file_count:
             return CheckResult(
@@ -488,8 +518,7 @@ async def _check_memory_reindex_dryrun(
         if memory_md.is_file():
             content = memory_md.read_text(encoding="utf-8").strip()
             if content:
-                sections = re.split(r"^---$", content, flags=re.MULTILINE)
-                count = sum(1 for s in sections if s.strip())
+                count = _count_curated_sections(content)
                 if count:
                     expected["MEMORY.md"] = count
 

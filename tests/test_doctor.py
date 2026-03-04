@@ -19,6 +19,7 @@ from src.infra.doctor import (
     _check_session_activity,
     _check_soul_consistency,
     _check_telegram_deep,
+    _count_curated_sections,
     run_doctor,
 )
 from src.infra.health import CheckStatus, DoctorReport
@@ -193,6 +194,37 @@ class TestCheckSoulConsistency:
         assert r.status == CheckStatus.WARN
 
 
+# ── _count_curated_sections helper ──
+
+
+class TestCountCuratedSections:
+    def test_empty(self) -> None:
+        assert _count_curated_sections("") == 0
+        assert _count_curated_sections("   ") == 0
+
+    def test_h2_sections(self) -> None:
+        content = "## Section A\nBody A\n## Section B\nBody B\n## Section C\nBody C"
+        assert _count_curated_sections(content) == 3
+
+    def test_h1_plus_h2(self) -> None:
+        content = "# Title\n\n## Section A\nBody A\n## Section B\nBody B"
+        assert _count_curated_sections(content) == 2
+
+    def test_empty_body_skipped(self) -> None:
+        content = "## Has Body\nSome text\n## Empty\n## Also Body\nMore text"
+        assert _count_curated_sections(content) == 2
+
+    def test_no_headers(self) -> None:
+        """Content without headers → one section (matches _split_by_headers)."""
+        assert _count_curated_sections("Just plain text") == 1
+
+    def test_triple_dash_not_counted(self) -> None:
+        """--- separators should NOT split curated memory sections."""
+        content = "## Section A\nBody A\n---\nMore body A\n## Section B\nBody B"
+        # --- is just body content, so 2 sections total
+        assert _count_curated_sections(content) == 2
+
+
 # ── D2: memory_index_health ──
 
 
@@ -226,6 +258,35 @@ class TestCheckMemoryIndexHealth:
         mem_dir = tmp_path / "memory"
         mem_dir.mkdir()
         engine = _mock_engine_with_responses({"COUNT": [(0,)]})
+        s = _make_settings(workspace_dir=tmp_path, memory_workspace_path=tmp_path)
+        r = await _check_memory_index_health(s, engine)
+        assert r.status == CheckStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_memory_md_uses_header_split(self, tmp_path: Path) -> None:
+        """MEMORY.md must be counted by ## headers, not --- separators."""
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        # MEMORY.md with 2 ## sections (no --- separators)
+        (tmp_path / "MEMORY.md").write_text(
+            "# Title\n\n## Section A\nBody A\n## Section B\nBody B"
+        )
+        # DB has 2 entries matching the 2 header sections
+        engine = _mock_engine_with_responses({"COUNT": [(2,)]})
+        s = _make_settings(workspace_dir=tmp_path, memory_workspace_path=tmp_path)
+        r = await _check_memory_index_health(s, engine)
+        assert r.status == CheckStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_memory_md_with_dashes_in_body(self, tmp_path: Path) -> None:
+        """--- inside MEMORY.md body should not inflate the count."""
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        # MEMORY.md: 2 sections, one containing --- in body
+        (tmp_path / "MEMORY.md").write_text(
+            "## Section A\nBody A\n---\nStill body A\n## Section B\nBody B"
+        )
+        engine = _mock_engine_with_responses({"COUNT": [(2,)]})
         s = _make_settings(workspace_dir=tmp_path, memory_workspace_path=tmp_path)
         r = await _check_memory_index_health(s, engine)
         assert r.status == CheckStatus.OK
@@ -432,6 +493,22 @@ class TestCheckMemoryReindexDryrun:
         r = await _check_memory_reindex_dryrun(s, engine)
         assert r.status == CheckStatus.WARN
         assert "orphan" in r.evidence
+
+    @pytest.mark.asyncio
+    async def test_memory_md_uses_header_split(self, tmp_path: Path) -> None:
+        """DD3 must count MEMORY.md by ## headers, not --- separators."""
+        mem_dir = tmp_path / "memory"
+        mem_dir.mkdir()
+        (tmp_path / "MEMORY.md").write_text(
+            "## Section A\nBody A\n## Section B\nBody B"
+        )
+        # DB has 2 entries for MEMORY.md matching the 2 header sections
+        engine = _mock_engine_with_responses({
+            "source_path": [("MEMORY.md", 2)]
+        })
+        s = _make_settings(workspace_dir=tmp_path, memory_workspace_path=tmp_path)
+        r = await _check_memory_reindex_dryrun(s, engine)
+        assert r.status == CheckStatus.OK
 
 
 # ── run_doctor composite ──
