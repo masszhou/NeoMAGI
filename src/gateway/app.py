@@ -186,6 +186,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         api_key=settings.openai.api_key,
         base_url=settings.openai.base_url,
         health_tracker=health_tracker,
+        provider_name="openai",
     )
     registry.register(
         "openai",
@@ -199,6 +200,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             api_key=settings.gemini.api_key,
             base_url=settings.gemini.base_url,
             health_tracker=health_tracker,
+            provider_name="gemini",
         )
         registry.register(
             "gemini",
@@ -321,16 +323,14 @@ async def health_ready(request: Request) -> dict:
                 next_action="Restart service",
             )
         )
-    if not tracker.provider_healthy:
+    for prov_name, fail_count in tracker.unhealthy_providers().items():
         component_checks.append(
             CheckResult(
-                name="provider_runtime",
+                name=f"provider_runtime_{prov_name}",
                 status=CheckStatus.FAIL,
-                evidence=(
-                    f"{tracker.provider_consecutive_failures} consecutive LLM failures"
-                ),
-                impact="LLM requests failing",
-                next_action="Check provider status",
+                evidence=f"{fail_count} consecutive LLM failures ({prov_name})",
+                impact=f"LLM requests to {prov_name} failing",
+                next_action=f"Check {prov_name} provider status",
             )
         )
 

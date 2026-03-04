@@ -79,6 +79,9 @@ class ComponentHealthTracker:
 
     Updated by model_client (provider) and app lifespan (telegram).
     Read by /health/ready endpoint. No locks needed: single-process asyncio.
+
+    Provider health is tracked per-provider to avoid cross-contamination
+    in multi-provider scenarios (e.g. OpenAI + Gemini).
     """
 
     PROVIDER_FAILURE_THRESHOLD = 5
@@ -86,17 +89,27 @@ class ComponentHealthTracker:
     def __init__(self) -> None:
         self.telegram_healthy: bool = True
         self.telegram_error: str | None = None
-        self.provider_consecutive_failures: int = 0
+        self._provider_failures: dict[str, int] = {}
 
     @property
-    def provider_healthy(self) -> bool:
-        return self.provider_consecutive_failures < self.PROVIDER_FAILURE_THRESHOLD
+    def all_providers_healthy(self) -> bool:
+        return all(
+            v < self.PROVIDER_FAILURE_THRESHOLD for v in self._provider_failures.values()
+        )
 
-    def record_provider_success(self) -> None:
-        self.provider_consecutive_failures = 0
+    def unhealthy_providers(self) -> dict[str, int]:
+        """Return {provider_name: failure_count} for providers above threshold."""
+        return {
+            name: count
+            for name, count in self._provider_failures.items()
+            if count >= self.PROVIDER_FAILURE_THRESHOLD
+        }
 
-    def record_provider_failure(self) -> None:
-        self.provider_consecutive_failures += 1
+    def record_provider_success(self, name: str) -> None:
+        self._provider_failures[name] = 0
+
+    def record_provider_failure(self, name: str) -> None:
+        self._provider_failures[name] = self._provider_failures.get(name, 0) + 1
 
     def record_telegram_failure(self, error: str) -> None:
         self.telegram_healthy = False

@@ -122,11 +122,13 @@ class OpenAICompatModelClient(ModelClient):
         max_retries: int = 3,
         base_delay: float = 1.0,
         health_tracker: ComponentHealthTracker | None = None,
+        provider_name: str = "",
     ) -> None:
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._max_retries = max_retries
         self._base_delay = base_delay
         self._health_tracker = health_tracker
+        self._provider_name = provider_name
 
     async def _retry_call(
         self,
@@ -148,12 +150,12 @@ class OpenAICompatModelClient(ModelClient):
             try:
                 result = await coro_factory()
                 if not defer_health and self._health_tracker:
-                    self._health_tracker.record_provider_success()
+                    self._health_tracker.record_provider_success(self._provider_name)
                 return result
             except _RETRYABLE as e:
                 if attempt == self._max_retries:
                     if self._health_tracker:
-                        self._health_tracker.record_provider_failure()
+                        self._health_tracker.record_provider_failure(self._provider_name)
                     raise LLMError(
                         f"LLM call failed after {self._max_retries + 1} attempts: {e}"
                     ) from e
@@ -169,7 +171,7 @@ class OpenAICompatModelClient(ModelClient):
                 await asyncio.sleep(delay)
             except APIStatusError as e:
                 if self._health_tracker:
-                    self._health_tracker.record_provider_failure()
+                    self._health_tracker.record_provider_failure(self._provider_name)
                 raise LLMError(f"LLM API error: {e.status_code} {e.message}") from e
         # Unreachable, but satisfies type checker
         raise LLMError("Retry loop exhausted")  # pragma: no cover
@@ -223,10 +225,10 @@ class OpenAICompatModelClient(ModelClient):
                 if delta.content:
                     yield delta.content
             if self._health_tracker:
-                self._health_tracker.record_provider_success()
+                self._health_tracker.record_provider_success(self._provider_name)
         except Exception:
             if self._health_tracker:
-                self._health_tracker.record_provider_failure()
+                self._health_tracker.record_provider_failure(self._provider_name)
             raise
 
     async def chat_completion(
@@ -348,10 +350,10 @@ class OpenAICompatModelClient(ModelClient):
                                 entry["arguments"] += tc_delta.function.arguments
 
             if self._health_tracker:
-                self._health_tracker.record_provider_success()
+                self._health_tracker.record_provider_success(self._provider_name)
         except Exception:
             if self._health_tracker:
-                self._health_tracker.record_provider_failure()
+                self._health_tracker.record_provider_failure(self._provider_name)
             raise
 
         # After stream ends: yield accumulated tool calls if any

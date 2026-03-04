@@ -156,7 +156,7 @@ class TestHealthReady:
         mock_readiness.return_value = PreflightReport(checks=[_ok("db_connection")])
         tracker = ComponentHealthTracker()
         for _ in range(ComponentHealthTracker.PROVIDER_FAILURE_THRESHOLD):
-            tracker.record_provider_failure()
+            tracker.record_provider_failure("openai")
         _setup_app_state(
             preflight_checks=[_ok("active_provider"), _ok("soul_reconcile")],
             tracker=tracker,
@@ -167,8 +167,9 @@ class TestHealthReady:
             resp = await client.get("/health/ready")
         data = resp.json()
         assert data["status"] == "not_ready"
-        assert "provider_runtime" in data["checks"]
-        assert data["checks"]["provider_runtime"]["status"] == "fail"
+        assert "provider_runtime_openai" in data["checks"]
+        assert data["checks"]["provider_runtime_openai"]["status"] == "fail"
+        assert "openai" in data["checks"]["provider_runtime_openai"]["evidence"]
 
     @pytest.mark.asyncio
     @patch("src.gateway.app.run_readiness_checks")
@@ -179,7 +180,7 @@ class TestHealthReady:
         mock_readiness.return_value = PreflightReport(checks=[_ok("db_connection")])
         tracker = ComponentHealthTracker()
         for _ in range(ComponentHealthTracker.PROVIDER_FAILURE_THRESHOLD - 1):
-            tracker.record_provider_failure()
+            tracker.record_provider_failure("openai")
         _setup_app_state(
             preflight_checks=[_ok("active_provider"), _ok("soul_reconcile")],
             tracker=tracker,
@@ -190,7 +191,7 @@ class TestHealthReady:
             resp = await client.get("/health/ready")
         data = resp.json()
         assert data["status"] == "ready"
-        assert "provider_runtime" not in data["checks"]
+        assert "provider_runtime_openai" not in data["checks"]
 
     @pytest.mark.asyncio
     @patch("src.gateway.app.run_readiness_checks")
@@ -201,8 +202,8 @@ class TestHealthReady:
         mock_readiness.return_value = PreflightReport(checks=[_ok("db_connection")])
         tracker = ComponentHealthTracker()
         for _ in range(ComponentHealthTracker.PROVIDER_FAILURE_THRESHOLD - 1):
-            tracker.record_provider_failure()
-        tracker.record_provider_success()  # reset
+            tracker.record_provider_failure("openai")
+        tracker.record_provider_success("openai")  # reset
         _setup_app_state(
             preflight_checks=[_ok("active_provider"), _ok("soul_reconcile")],
             tracker=tracker,
@@ -213,3 +214,27 @@ class TestHealthReady:
             resp = await client.get("/health/ready")
         data = resp.json()
         assert data["status"] == "ready"
+
+    @pytest.mark.asyncio
+    @patch("src.gateway.app.run_readiness_checks")
+    async def test_per_provider_isolation(self, mock_readiness: AsyncMock) -> None:
+        """Failures on one provider don't affect another."""
+        mock_readiness.return_value = PreflightReport(checks=[_ok("db_connection")])
+        tracker = ComponentHealthTracker()
+        # Gemini fails past threshold
+        for _ in range(ComponentHealthTracker.PROVIDER_FAILURE_THRESHOLD):
+            tracker.record_provider_failure("gemini")
+        # OpenAI is fine
+        tracker.record_provider_success("openai")
+        _setup_app_state(
+            preflight_checks=[_ok("active_provider"), _ok("soul_reconcile")],
+            tracker=tracker,
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/health/ready")
+        data = resp.json()
+        assert data["status"] == "not_ready"
+        assert "provider_runtime_gemini" in data["checks"]
+        assert "provider_runtime_openai" not in data["checks"]
