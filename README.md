@@ -1,32 +1,46 @@
-# NeoMAGI 项目理念
-NeoMAGI的目标是一个开源的，拥有持久记忆、代表用户信息利益的 personal agent，是一个渐进式的信息自主权方案，——先用商业 API 建立 harness 和 memory 基础设施，等本地模型能力追上来后逐步迁移。
+# NeoMAGI
 
-## 核心设计理念
-考虑上充分，实现上极简。不要过度设计，不要过度工程化。
+[中文](README_ch.md) | [Deutsch](README_de.md)
 
-## 最小化实现需要的模块
-参见 design_docs/modules.md
+NeoMAGI is an open-source personal agent project.
 
-## 设计文档入口
-当前默认入口参见 `design_docs/index.md`；已完成的 Phase 1 设计文档归档在 `design_docs/phase1/`。
+The product idea is straightforward: build an agent that can carry memory over time, represent the user's information interests, and gradually move from hosted model APIs toward more local and user-controlled model stacks.
 
-## 目录结构
+## Product Position
 
-```
-src/
-├── gateway/        # Gateway 服务器、RPC 协议、路由
-├── config/         # 配置 schema (zod)、验证、热加载
-├── agents/         # Agent Runtime、System Prompt 组装、Sandbox
-├── channels/       # 内置 Channel（telegram 等）
-├── memory/         # Memory 索引管理、Embedding、Hybrid Search
-├── tools/          # Tool Registry、内置工具（exec, read 等）
-├── sessions/       # Session 管理、Transcript 存储
-├── cli/            # CLI 命令
-└── infra/          # 基础设施（env, errors, ports）
-```
+NeoMAGI is not trying to be a generic chatbot shell.
 
-## 系统提示词设计理念
-参见 design_docs/system_prompt.md
+The intended direction is a long-term partner-style AI that:
+- remembers useful context across time
+- acts in service of the user rather than platform incentives
+- can expand its capabilities in a controlled and auditable way
+- keeps a practical migration path from commercial APIs to local models
 
-## 记忆系统设计
-参见 design_docs/memory_architecture_v2.md
+## Principles
+
+- Think deeply, implement simply.
+- Prefer the smallest useful closed loop.
+- Avoid unnecessary abstraction and dependency sprawl.
+- Treat governance, rollback, and scope boundaries as product features, not only engineering details.
+
+## Current Status
+
+This repository is still in an early product-building stage.
+
+The Phase 1 foundation has largely been built and archived as reference. Phase 2 planning is about reducing context burden, clarifying the next product chapter, and moving from base infrastructure toward a more explicit growth and capability-evolution model.
+
+The README intentionally stays high level. It is meant as a project introduction, not a full implementation contract.
+
+## Documentation
+
+- Project design entry: `design_docs/index.md`
+- Phase 1 archive: `design_docs/phase1/index.md`
+- Runtime prompt model: `design_docs/system_prompt.md`
+- Memory principles: `design_docs/memory_architecture_v2.md`
+- Repo governance: `AGENTS.md`, `CLAUDE.md`, `AGENTTEAMS.md`
+
+## Status Note
+
+Expect active iteration.
+
+Names, boundaries, and implementation details may continue to change as the product direction becomes sharper and more of the system is validated through real use.
