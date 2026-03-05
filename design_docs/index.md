@@ -35,6 +35,10 @@
   - `design_docs/memory_architecture.md`
   - 适用：M2-M3 阶段的历史规划背景与早期记忆边界讨论
 
+- Deterministic procedure / runtime control 相关：
+  - `design_docs/procedure_runtime_draft.md`
+  - 适用：讨论高约束多步流程如何从 prompt / skill 下沉到 runtime object、guard、state machine 与 script executor；明确为何不引入通用 workflow engine
+
 - Prompt 文件体系相关：
   - `design_docs/system_prompt.md`
   - 适用：AGENTS/SOUL/USER/IDENTITY/TOOLS 等注入策略讨论
