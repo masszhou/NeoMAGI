@@ -1,18 +1,11 @@
 ---
 name: devcoord-backend
-description: Acknowledge NeoMAGI PM devcoord instructions and report backend phase progress through scripts/devcoord/coord.py. Use when acting as the backend teammate or when the request mentions GATE_OPEN, PING, ack, heartbeat, phase-complete, or recovery-check for backend work.
+description: Acknowledge NeoMAGI PM devcoord instructions and report backend phase progress through scripts/devcoord/coord.py. Use when acting as the backend teammate, when a PM issues GATE_OPEN/WAIT/RESUME/PING, when backend work starts/resumes/blocks/completes, when context is compressed or the process is restarted, or when the request mentions ack, heartbeat, phase-complete, or recovery-check for backend work.
 ---
 
 # Devcoord Backend
 
 This skill defines the backend teammate's devcoord write path.
-
-## Use this skill when
-
-- acting as the NeoMAGI backend teammate
-- a PM issues `GATE_OPEN`, `WAIT`, `RESUME`, or `PING`
-- backend work starts, resumes, blocks, or completes
-- context is compressed or the process is restarted
 
 ## Hard rules
 
@@ -38,13 +31,11 @@ This skill defines the backend teammate's devcoord write path.
 - Backend must not record: `open-gate`, `state-sync-ok`, `ping`, `stale-detected`, `gate-close`.
 - If a PM asks for a phase you are not authorized to enter, stop and wait.
 
-## Payload checklist
+## Payload reference
 
-- `milestone`
-- `phase`
-- `gate_id`
-- `target_commit` when known from PM
-- `last_seen_gate` for `recovery-check`
-- `task` in one concrete sentence
-- `branch` for `heartbeat` and `phase-complete`
-- `commit` for `ack` and `phase-complete`, taken from the verified current `HEAD`
+See [references/payloads.md](references/payloads.md) for required fields and example JSON for each action.
+
+## Error handling
+
+- If `coord.py` rejects a payload (missing field, unknown action), fix the payload and retry — do not skip the write.
+- If `HEAD != target_commit`, stop all work and report `blocked: HEAD mismatch` to the PM with both SHAs. Do not attempt devcoord writes or code changes until the PM issues a new `target_commit` or `state-sync-ok`.

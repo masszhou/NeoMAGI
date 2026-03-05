@@ -1,19 +1,11 @@
 ---
 name: devcoord-tester
-description: Acknowledge NeoMAGI PM devcoord instructions, report tester review progress, recover after restart, and submit gate review evidence through scripts/devcoord/coord.py. Use when acting as the tester teammate or when the request mentions GATE_OPEN, PING, ack, heartbeat, recovery-check, or gate-review for validation and acceptance work.
+description: Acknowledge NeoMAGI PM devcoord instructions, report tester review progress, recover after restart, and submit gate review evidence through scripts/devcoord/coord.py. Use when acting as the tester teammate, when a PM opens a tester gate or sends PING, when tester review starts/pauses/finishes, when resuming after context loss or process restart, when a review report is committed and ready to register, or when the request mentions ack, heartbeat, recovery-check, or gate-review for validation and acceptance work.
 ---
 
 # Devcoord Tester
 
 This skill defines the tester teammate's devcoord write path.
-
-## Use this skill when
-
-- acting as the NeoMAGI tester teammate
-- a PM opens a tester gate or sends `PING`
-- tester review starts, pauses, or finishes
-- tester resumes after context loss or process restart
-- a review report has been committed and is ready to register
 
 ## Hard rules
 
@@ -39,16 +31,12 @@ This skill defines the tester teammate's devcoord write path.
 - Tester must not record: `open-gate`, `state-sync-ok`, `stale-detected`, `gate-close`.
 - If `STATE_SYNC_OK` has not been issued after a recovery event, remain in `WAIT`.
 
-## Review submission checklist
+## Payload reference
 
-- `result`
-- `report_path`
-- `report_commit`
-- `gate_id`
-- `phase`
-- `target_commit` implied by the gate being reviewed
+See [references/payloads.md](references/payloads.md) for required fields and example JSON for each action.
 
-## Recovery payload note
+## Error handling
 
-- `last_seen_gate` is required for `recovery-check`.
-- If `HEAD != target_commit`, stop and report the mismatch before attempting `recovery-check`.
+- If `coord.py` rejects a payload (missing field, unknown action), fix the payload and retry — do not skip the write.
+- If `HEAD != target_commit`, stop all work and report `blocked: HEAD mismatch` to the PM with both SHAs. Do not attempt devcoord writes or review work until the PM issues a new `target_commit` or `state-sync-ok`.
+- If `STATE_SYNC_OK` has not been issued after a recovery event, remain in `WAIT` and do not proceed.

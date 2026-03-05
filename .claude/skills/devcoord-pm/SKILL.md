@@ -1,20 +1,11 @@
 ---
 name: devcoord-pm
-description: Drive NeoMAGI devcoord gate control, recovery sync, stale handling, projection rendering, audit, and gate closure through scripts/devcoord/coord.py. Use when acting as the PM or when the request mentions open-gate, state-sync-ok, ping, unconfirmed-instruction, stale-detected, log-pending, render, audit, gate-review, or gate-close.
+description: PM-side operating contract for NeoMAGI devcoord — gate lifecycle, teammate coordination, recovery sync, timeout escalation, projection rendering, audit, and gate closure. Drive all control-plane state through scripts/devcoord/coord.py. Use when acting as the PM or when the request mentions open-gate, state-sync-ok, ping, unconfirmed-instruction, stale-detected, log-pending, render, audit, gate-review, or gate-close.
 ---
 
 # Devcoord PM
 
-This skill is the PM-side operating contract for NeoMAGI devcoord after the control plane has already been initialized. One-off bootstrap such as `init` is outside the normal steady-state loop.
-
-## Use this skill when
-
-- acting as the NeoMAGI PM for devcoord
-- issuing or advancing a gate
-- translating teammate status into control-plane events
-- handling recovery, timeout, stale, or append-first exceptions
-- preparing review closure evidence
-- rendering or auditing projections before gate close
+PM-side operating contract for NeoMAGI devcoord after the control plane has been initialized. One-off bootstrap (`init`) is outside the normal steady-state loop.
 
 ## Hard rules
 
@@ -24,27 +15,45 @@ This skill is the PM-side operating contract for NeoMAGI devcoord after the cont
 - Never write devcoord state by calling `bd` directly.
 - Treat repo-root `.beads` as the only default shared control plane.
 
+## Role boundaries
+
+PM may record: `open-gate`, `state-sync-ok`, `ping`, `unconfirmed-instruction`, `stale-detected`, `log-pending`, `gate-close`, `milestone-close`, `render`, `audit`.
+
+PM must not record teammate actions: `ack`, `heartbeat`, `phase-complete`, `recovery-check`, `gate-review`.
+
 ## Workflow
 
-1. Read `AGENTTEAMS.md`, `dev_docs/devcoord/beads_control_plane.md`, and the latest M7 plan/review if they are not already in context.
+1. Verify familiarity with `AGENTTEAMS.md`, `dev_docs/devcoord/beads_control_plane.md`, and the latest milestone plan/review; read only if not already in context.
 2. For every teammate status change, record the matching devcoord action first, then continue coordination.
-3. If append-first cannot be satisfied in the same PM turn, immediately record `log-pending` and backfill on the next PM turn.
+3. If append-first cannot be satisfied in the same PM turn, immediately record `log-pending` and backfill on the next turn.
 4. When spawning Claude Code teammate actions, include `target_commit` and require the teammate to verify `git rev-parse HEAD == target_commit` before any devcoord write.
 5. Before any `gate-close`, run `render`, then `audit`, and require `reconciled=true`.
 6. Only close a gate after `gate-review` exists and the report commit/path are visible in the main repo.
 
 ## Command map
 
-- Gate issue or phase handoff: `open-gate`
-- Teammate ACK of `GATE_OPEN` or `PING`: `ack`
-- Teammate progress update: `heartbeat`
-- Backend phase result ready: `phase-complete`
-- Restart or context loss: `recovery-check` then `state-sync-ok`
-- Timeout handling: `ping`, `unconfirmed-instruction`, `stale-detected`
-- Append-first exception: `log-pending`
-- Review submitted: `gate-review`
-- Projection refresh and reconciliation: `render`, `audit`
-- Final gate decision: `gate-close`
+| Action | Purpose |
+|--------|---------|
+| `open-gate` | Gate issue or phase handoff |
+| `state-sync-ok` | PM confirms teammate recovery state is consistent |
+| `ping` | Liveness check requiring teammate ACK |
+| `unconfirmed-instruction` | Escalation when teammate fails to ACK after ping |
+| `stale-detected` | Timeout escalation after repeated ping failures |
+| `log-pending` | Append-first exception — deferred logging marker |
+| `gate-close` | Final gate decision after review + audit |
+| `milestone-close` | Close entire milestone |
+| `render` | Refresh projection files from beads |
+| `audit` | Reconciliation check (returns `reconciled` boolean) |
+
+## Payload reference
+
+See [references/payloads.md](references/payloads.md) for required fields and example JSON for each action.
+
+## Error handling
+
+- If `coord.py` rejects a payload, fix and retry — do not skip the control-plane write.
+- If `audit` returns `reconciled=false`, inspect the reported discrepancies, fix the underlying beads, re-run `render` then `audit` again. Do not proceed to `gate-close` until `reconciled=true`.
+- If a teammate reports `blocked: HEAD mismatch`, issue a new `target_commit` via `state-sync-ok` or provide a corrected gate instruction.
 
 ## Output expectations
 
