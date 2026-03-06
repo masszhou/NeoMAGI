@@ -57,6 +57,7 @@ class GrowthProposal:
     risk_notes: str
     diff_summary: str
     evidence_refs: list[str] = field(default_factory=list)
+    payload: dict[str, object] = field(default_factory=dict)
     proposed_by: str = "agent"
 
 
