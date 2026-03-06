@@ -1,7 +1,7 @@
-# P2-M1a 实施计划草案：Growth Governance Kernel
+# P2-M1a 实施计划：Growth Governance Kernel
 
 - Date: 2026-03-06
-- Status: draft
+- Status: approved
 - Scope: `P2-M1a` only; establish the minimal governance kernel for explicit growth
 - Basis:
   - [`design_docs/phase2/p2_m1_architecture.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/p2_m1_architecture.md)
@@ -136,6 +136,10 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 - 各对象通过 adapter 接入
 - 对未接入对象必须 fail-closed，返回明确 `UNSUPPORTED_GROWTH_OBJECT`
 - `src/growth/` 只管治理编排，不管对象存储；对象存储仍留在 `src/memory/` 或未来对象自己的领域模块
+- `P2-M1a` 采用最简 adapter 注册方式：
+  - composition root 显式构造 `GrowthGovernanceEngine(adapters=[...])`
+  - 当前只显式注入 `SoulGovernedObjectAdapter`
+  - 不引入 config-driven registry、service locator 或自动发现机制
 
 ### 3. Adapter Layer
 
@@ -172,6 +176,15 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 - 哪些对象当前只保留 reserved registration
 - 高风险对象是否需要额外 approval
 - future promote / demote policy 的 schema 结构
+
+关系说明：
+
+- `GrowthKindPolicy` 是 per-kind 元数据载体：
+  - 负责表达某个 kind 是否 `onboarded` / `reserved`
+  - 是否需要额外 approval
+  - 当前应绑定哪个 adapter
+- `PromotionPolicy` 是跨 kind 的规则载体：
+  - 负责表达从一个 kind 升格到另一个 kind 时，需要哪些 evidence / tests / risk gate
 
 `P2-M1a` 中真正会被 runtime 消费的 policy 只有：
 
@@ -219,10 +232,10 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 
 因此不建议把 `P2-M1a` 做成一个大提交，建议至少拆成 4 个窄切片：
 
-1. ADR + 领域类型与 policy registry
-2. engine / adapter contract
-3. `SOUL.md` thin wrapper 接入
-4. 测试与回归验证
+1. ADR, Domain Types, and Policy Registry
+2. Governance Engine and Adapter Contract
+3. Soul Adapter Migration
+4. Tests and Guardrails
 
 每个切片都应独立可审阅，不依赖“大量未落地 future object 实现”。
 
@@ -288,9 +301,9 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 
 必须保持 green 的现有回归测试：
 
-- [`tests/test_evolution.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/tests/test_evolution.py)
-- [`tests/integration/test_evolution_e2e.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/tests/integration/test_evolution_e2e.py)
-- [`tests/test_soul_tools.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/tests/test_soul_tools.py)
+- `tests/test_evolution.py`
+- `tests/integration/test_evolution_e2e.py`
+- `tests/test_soul_tools.py`
 
 至少覆盖：
 
@@ -342,10 +355,10 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 - 系统能列出允许成长的对象类型，以及哪些已接入、哪些仅预留。
 - `SOUL.md` 通过新的 governance kernel 仍可完成 `propose -> evaluate -> apply -> rollback`，且 observable semantics 不变。
 - governance kernel 对未接入对象给出明确拒绝，而不是静默降级到 prompt 漂移。
-- reserved promotion policy 至少以 machine-readable schema 存在，并通过 schema 级校验；`P2-M1a` 不要求跨 kind promote 的端到端行为测试。
+- reserved promotion policy 至少以 machine-readable schema 存在，并通过 schema 级校验；`P2-M1a` 不要求跨 kind promote 的端到端行为测试（见下文 Resolved Positions: promotion / demotion policy projection）。
 - 现有 `SOUL.md` 回归测试不退化。
 
-## Resolved Positions for This Draft
+## Resolved Positions
 
 - `evaluated_passed` vs `evaluated_failed`
   - `P2-M1a` 保留现有做法：eval 结果写入 payload，不引入新 lifecycle status。
@@ -354,9 +367,9 @@ Phase 2 已经明确把“显式成长”放到第一优先级，但当前代码
 - promotion / demotion policy projection
   - `P2-M1a` 只要求纯代码声明与 schema 级校验，workspace projection 推迟到有运行时消费者时再决定。
 
-## Output of This Draft
+## Approved Execution Focus
 
-如果这版方向确认，下一步应产出正式 plan，并进入一个窄范围实现：
+本计划批准后，执行范围应保持收敛：
 
 - 以 `SOUL.md` 为唯一正式接入对象
 - 以 `growth kernel + policy registry + adapter contract` 为主线

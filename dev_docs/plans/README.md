@@ -28,7 +28,7 @@
 - `phase1/m1.2_gateway-connection-stability_2026-02-17.md`
 - `phase1/m1.2_gateway-connection-stability_2026-02-17_v2.md`
 - `phase1/m1.2_gateway-connection-stability_2026-02-17_draft.md`
-- `phase2/p2-m1a_growth-governance-kernel_2026-03-06_draft.md`
+- `phase2/p2-m1a_growth-governance-kernel_2026-03-06.md`
 
 ## 使用约定
 
