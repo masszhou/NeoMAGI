@@ -53,6 +53,7 @@ M0 使用轻量决策日志（ADR-lite）：关键取舍可追溯，文档保持
 | 0047 | NeoMAGI multi-agent: single-SOUL execution units | accepted | 2026-03-05 | `decisions/0047-neomagi-multi-agent-single-soul-execution-units.md` |
 | 0048 | Skill objects as runtime experience layer | accepted | 2026-03-06 | `decisions/0048-skill-objects-as-runtime-experience-layer.md` |
 | 0049 | Growth governance kernel: adapter-first orchestration | accepted | 2026-03-06 | `decisions/0049-growth-governance-kernel-adapter-first.md` |
+| 0050 | Devcoord: decouple from beads and use a SQLite control-plane store | proposed | 2026-03-06 | `decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md` |
 
 ## 记录规则
 - 每个关键决策一个文件，命名：`NNNN-short-title.md`。
