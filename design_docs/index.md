@@ -16,27 +16,31 @@
 1. `design_docs/phase2/roadmap_milestones_v1.md`
    - 当前生效中的 Phase 2 产品路线图草案。
 
-2. `design_docs/modules.md`
+2. `design_docs/phase2/index.md`
+   - Phase 2 技术架构索引：`P2-M1 ~ P2-M4` 的 architecture 文档入口。
+
+3. `design_docs/modules.md`
    - 当前系统模块边界、平台基线与主要实现入口。
 
-3. `design_docs/system_prompt.md`
+4. `design_docs/system_prompt.md`
    - 运行时 prompt 文件加载顺序、优先级与 workspace context 分层。
 
-4. `design_docs/memory_architecture_v2.md`
+5. `design_docs/memory_architecture_v2.md`
    - 长期 memory 原则：workspace 真源、retrieval plane、kernel / applications 分层。
 
-5. `design_docs/procedure_runtime_draft.md`
+6. `design_docs/procedure_runtime_draft.md`
    - Phase 2 方向的 deterministic procedure / runtime control 草案。
 
-6. `design_docs/skill_objects_runtime_draft.md`
+7. `design_docs/skill_objects_runtime_draft.md`
    - `2+1` 中第二层：skill object 的结构、程序化投影与学习草案。
 
-7. `design_docs/phase1/index.md`
+8. `design_docs/phase1/index.md`
    - 只有在需要 Phase 1 历史设计细节时再进入。
 
 ## 3. 当前默认激活文档
 
 - `design_docs/phase2/roadmap_milestones_v1.md`
+- `design_docs/phase2/index.md`
 - `design_docs/modules.md`
 - `design_docs/system_prompt.md`
 - `design_docs/memory_architecture_v2.md`
