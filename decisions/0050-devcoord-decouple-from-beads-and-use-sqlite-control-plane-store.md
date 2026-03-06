@@ -1,6 +1,6 @@
 # 0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-03-06
 - Note: 本 ADR 只讨论 `devcoord` 的控制面存储与边界，不改变产品运行时 PostgreSQL 基线。
 
