@@ -1016,3 +1016,4 @@
 {"actor":"Zhiliang Zhou","comment":"Added label: coord-role-pm","created_at":"2026-03-06T13:57:16Z","event_type":"label_added","id":1147,"issue_id":"NeoMAGI-r0w.6.1.12","new_value":null,"old_value":null}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-06T13:59:13Z","event_type":"closed","id":1148,"issue_id":"NeoMAGI-86g","new_value":"P2-M1a completed: 3 gates PASS, 11 files, 1031 lines, 68 new tests (913 total)","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-06T14:19:15Z","event_type":"closed","id":1149,"issue_id":"NeoMAGI-86g.4","new_value":"Completed - G0 tester review PASS (close missed due to worktree beads path issue)","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-07T00:49:02Z","event_type":"closed","id":1150,"issue_id":"NeoMAGI-r0w.6.1.12","new_value":"Superseded by fresh SQLite control-plane cutover; historical coord data archived.","old_value":""}
