@@ -124,6 +124,12 @@ neomagi/
 - 这是项目的持久记忆；后续 PM 重启时先读取当前 active phase 子目录中的最新 plan，再按需回溯其他 phase。
 - 产出计划前先对齐 `AGENTTEAMS.md`、`AGENTS.md`、`CLAUDE.md`、`decisions/`、`design_docs/` 约束。
 
+## Progress 持久化
+
+- `dev_docs/progress/project_progress.md` 保持为全局 append-only 项目总账，不按 phase 拆分，也不重命名为 `phase1_*` / `phase2_*`。
+- phase 边界通过同一文件中的 transition / closeout 记录表达，而不是通过新建 phase 专属 progress 文件表达。
+- 进入新 phase 时，优先读取当前 active phase 的 `design_docs/phase*/`、`dev_docs/plans/phase*/`；`project_progress.md` 只作为全局时间线与证据索引，避免把整段历史误当成当前默认上下文。
+
 ## 评审与迭代协议
 
 - 对 design/plan/fix 文档，默认执行"先约束清单、后草稿、再自检、最后提交"。

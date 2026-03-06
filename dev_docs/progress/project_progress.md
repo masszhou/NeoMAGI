@@ -319,3 +319,10 @@
 - Validation: `just lint`; `just test` (845 passed, 3 existing warnings); `just test-frontend` (16 passed); 用户手工完成 M5 restore/preflight 验证并通过
 - Next: M5 全部关闭；后续里程碑默认按 PostgreSQL 17 基线推进
 - Risk: 无阻塞风险；全量测试仍有 3 个既有 RuntimeWarning，未由本轮引入
+
+## 2026-03-06 (local) | Phase Transition
+- Status: done
+- Done: Phase 1 已归档收口，Phase 2 的产品 roadmap、技术架构和首个执行计划已建立；`project_progress.md` 继续保留为全局 append-only 总账，不按 phase 拆分或重命名
+- Evidence: `design_docs/phase1/index.md`, `design_docs/phase2/index.md`, `dev_docs/plans/phase2/p2-m1a_growth-governance-kernel_2026-03-06_draft.md`
+- Next: Phase 2 默认先读取 `design_docs/phase2/` 与 `dev_docs/plans/phase2/`，再按需回溯全局进度账本
+- Risk: 若把 `project_progress.md` 当作 Phase 2 默认必读，会重新引入 Phase 1 上下文污染

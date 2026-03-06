@@ -2,11 +2,14 @@
 
 用 `dev_docs/progress/project_progress.md`（Append-only）追踪“项目当前推进到什么阶段”。文件只做增量记录，不做历史改写。
 
+它是全局项目总账，不按 phase 拆分，也不重命名为 `phase1_*` / `phase2_*`。Phase 边界通过同一文件中的 transition / closeout 记录表达。
+
 ## 记录要求
 
 - `append-only`：只能在文件末尾追加，禁止修改或删除历史记录。
 - 纠错也追加：若历史记录有误，新增一条 `Correction of <timestamp>` 说明修正，不回写旧条目。
 - 触发时机：仅在阶段状态变化或关键里程碑完成时追加，避免流水账噪音。
+- 读取顺序：进入新 phase 时，先看当前 active phase 的 `design_docs/phase*/`、`dev_docs/plans/phase*/`；`project_progress.md` 只作为全局时间线与证据索引按需回溯。
 - 每条必须可追溯：`Evidence` 至少包含一个可核对证据（commit、plan、decision、test 命令结果）。
 - 保持极简：每个字段一句话，优先“结果与下一步”，不写长篇过程。
 - 脱敏：禁止写入密钥、token、隐私原文。
