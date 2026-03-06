@@ -326,3 +326,12 @@
 - Evidence: `design_docs/phase1/index.md`, `design_docs/phase2/index.md`, `dev_docs/plans/phase2/p2-m1a_growth-governance-kernel_2026-03-06.md`
 - Next: Phase 2 默认先读取 `design_docs/phase2/` 与 `dev_docs/plans/phase2/`，再按需回溯全局进度账本
 - Risk: 若把 `project_progress.md` 当作 Phase 2 默认必读，会重新引入 Phase 1 上下文污染
+
+<!-- devcoord:begin milestone=p2-m1a -->
+## 2026-03-06 (generated) | P2-M1A
+- Status: done
+- Done: 最新 gate p2m1a-g0 为 closed (PASS)；backend=done, tester=done
+- Evidence: `dev_docs/logs/phase2/p2-m1a_2026-03-06/gate_state.md`, `dev_docs/logs/phase2/p2-m1a_2026-03-06/watchdog_status.md`, `dev_docs/reviews/phase2/p2-m1a_phase0+1_2026-03-06.md` (fb5ecefaef5e32a358bb2448ba1bb940bdb5dae9)
+- Next: p2m1a-g0 已关闭，等待 P2-M1A 下一条 gate
+- Risk: 无
+<!-- devcoord:end milestone=p2-m1a -->
