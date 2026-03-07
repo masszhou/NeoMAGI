@@ -82,17 +82,26 @@
 
 - `CoordStore`
   - `init_store()`
-  - `list_records()`
-  - `create_record(...)`
-  - `update_record(...)`
+  - `list_records(milestone, kind=None, status=None)`
+  - `get_record(milestone, kind, **matches)`
+  - `create_record(...) -> CoordRecord`
+  - `update_record(...) -> CoordRecord`
 
-这里不要求名字必须完全如此，但要求语义不再以 “issue” 为中心。
+这里不要求名字必须完全如此，但要求语义不再以 “issue” 为中心，也不能只是把 CRUD 换个名字。
+
+`Stage A` 的最小要求是：
+
+- store 查询必须至少支持 `milestone` 下推
+- store 查询必须至少支持 `kind` 过滤
+- service 不再依赖 “先全量 load，再在 Python 里到处过滤” 这一模式作为唯一契约
+- `create/update` 最好直接返回完整 record，减少 service 内部手工构造 record 的需要
 
 约束：
 
 - `CoordService` 只依赖 `CoordStore`
 - service 不再 import `IssueStore`
 - service 不再以 `IssueRecord` 作为公开的内部中心名词
+- `Stage A` 不追求为每一种 query 建完整 repository API，但至少要为 `Stage B` 留出 SQL 可下推的接口形状
 
 ### 2. Adapter Mapping
 
@@ -110,21 +119,56 @@
 - `BeadsCoordStore` 只负责把 `beads` 记录翻译成 `CoordStore` 语义
 - 不在 `Stage A` 中为 `beads` 增加任何新 control-plane 功能
 - 不引入历史数据迁移逻辑
+- `BeadsCoordStore` 是明确的过渡 adapter：
+  - `Stage A` 引入
+  - `Stage B/C` 继续作为兼容后端存在
+  - 目标在 `Stage D` cutover 后移除
 
 ### 3. Record Model
 
-`Stage A` 不必立刻完成 SQLite 时代的最终 record model，但至少要做到：
+`Stage A` 不必立刻完成 SQLite 时代的最终 record model，但必须明确当前选择。
+
+本计划明确选择：
+
+- `Stage A` 保留单一 `CoordRecord`
+- 不在 `Stage A` 引入 `MilestoneRecord / GateRecord / EventRecord` 等 typed records
+- typed records 是否引入，推迟到 `Stage B` 或之后再决策
 
 - service 层不再依赖 `IssueRecord` 这个名字
 - adapter 层可各自决定内部记录如何映射
 - future `SQLiteCoordStore` 不需要为了复用 `IssueRecord` 而扭曲 schema
 
-最保守的做法是：
+这里的约束是：
 
 - 保留当前记录字段形状
 - 但将其提升为更中性的 `CoordRecord` / `CoordEntity` 概念
+- service 内部不应再大面积手工拼装旧 `IssueRecord`
+- 当 store 完成 `create/update` 后，应优先返回完整 `CoordRecord`，减少 service 自行回填字段的模式
 
-### 4. CLI Composition
+也就是说，`Stage A` 解决的是：
+
+- 去掉 `Issue*` 语言
+- 给未来 typed store 留接口空间
+
+而不是：
+
+- 一次性完成最终 domain model
+
+### 4. Concurrency Boundary
+
+`Stage A` 不修改并发控制机制。
+
+明确保持不变：
+
+- [`CoordService._locked()`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/scripts/devcoord/service.py) 的文件锁语义
+- [`CoordPaths.lock_file`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/scripts/devcoord/model.py#L29) 的使用方式
+
+原因：
+
+- 当前任务只切 store 抽象，不切锁模型
+- store 边界和锁边界同时改，会让回归面过大
+
+### 5. CLI Composition
 
 `coord.py` 在 `Stage A` 的唯一改动应是：
 
@@ -137,7 +181,7 @@
 - alias 收敛
 - 参数退役
 
-### 5. Test Strategy
+### 6. Test Strategy
 
 `Stage A` 的测试重点不是协议新增，而是确认抽象替换不改行为。
 
@@ -187,6 +231,8 @@
 - 中性 record 概念
 - `BeadsCoordStore`
 - `MemoryCoordStore`
+- 至少支持 `milestone` / `kind` 过滤的查询接口
+- `create/update` 返回完整 record
 
 验收：
 
@@ -207,20 +253,28 @@
 
 - service 不再 import `IssueStore`
 - service 不再把 `IssueRecord` 作为中心语义
+- service 不再默认依赖 “load all then filter everything”
 - 所有 helper 保持现有业务行为
 
 验收：
 
-- 核心方法行为不变：
+- 全部公开方法行为不变：
   - `init_control_plane`
   - `open_gate`
   - `ack`
+  - `heartbeat`
   - `phase_complete`
+  - `recovery_check`
+  - `state_sync_ok`
+  - `stale_detected`
+  - `ping`
+  - `unconfirmed_instruction`
+  - `log_pending`
   - `gate_review`
   - `gate_close`
   - `render`
   - `audit`
-  - `milestone_close`
+  - `close_milestone`
 
 ### Slice A3: CLI Wiring and Tests
 
@@ -251,7 +305,7 @@
 | # | 风险 | 影响 | 概率 | 缓解 |
 | --- | --- | --- | --- | --- |
 | R1 | 抽象重命名过度，实际行为被连带改坏 | `render/audit` 或 gate 行为回归 | 中 | 明确 `Stage A` 只换依赖边界，不换协议语义 |
-| R2 | service 仍残留 issue-oriented 细节 | `Stage B` 继续需要穿透 service | 中 | 以 import/type usage 检查 `IssueStore` / `IssueRecord` 残留 |
+| R2 | service 仍残留 issue-oriented 细节或全量加载模式 | `Stage B` 继续需要穿透 service | 中 | 以 import/type usage 检查 `IssueStore` / `IssueRecord` 残留，并检查 `milestone/kind` 查询是否已下推到 store 契约 |
 | R3 | 测试 double 改动过大 | 测试成本上升，回归难定位 | 中 | 保持 `MemoryCoordStore` 极薄，不提前模拟 SQLite |
 | R4 | 顺手改 CLI | 后续审阅面扩大 | 低 | 明确 grouped CLI 和参数退役全部 out of scope |
 
@@ -271,4 +325,5 @@
 
 - `Stage A` 不追求“最终抽象最优”，只追求给 `Stage B` 留出稳定插槽。
 - `Stage A` 的成功标准是“行为不变 + 依赖边界改变”，不是“新功能出现”。
+- `Stage A` 明确保留单一 `CoordRecord`；typed records 推迟到 `Stage B` 或以后再决定。
 - `Stage A` 完成后，下一步才进入 `SQLiteCoordStore` 的实现，而不是继续在 `beads` 语义上叠补丁。
