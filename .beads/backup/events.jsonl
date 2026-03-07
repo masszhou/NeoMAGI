@@ -1063,3 +1063,4 @@
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-07T00:49:39Z","event_type":"closed","id":1194,"issue_id":"NeoMAGI-r0w.3","new_value":"Superseded by fresh SQLite control-plane cutover; historical coord data archived.","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-07T00:49:39Z","event_type":"closed","id":1195,"issue_id":"NeoMAGI-r0w","new_value":"all steps complete","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-07T00:49:40Z","event_type":"closed","id":1196,"issue_id":"NeoMAGI-r0w","new_value":"Superseded by fresh SQLite control-plane cutover; historical coord data archived.","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-07T23:00:31Z","event_type":"created","id":1197,"issue_id":"NeoMAGI-mk0","new_value":"","old_value":""}
