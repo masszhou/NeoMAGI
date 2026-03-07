@@ -2,7 +2,7 @@
 
 > 状态：draft
 > 日期：2026-03-05
-> 基于：`design_docs/phase1/roadmap_milestones_v3.md`、`design_docs/procedure_runtime_draft.md`、`design_docs/memory_architecture_v2.md`
+> 基于：`design_docs/phase1/roadmap_milestones_v3.md`、`design_docs/procedure_runtime.md`、`design_docs/memory_architecture_v2.md`
 
 ## 1. 这份 roadmap 管什么，不管什么
 

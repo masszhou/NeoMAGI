@@ -2,7 +2,7 @@
 
 > 状态：planned  
 > 对应里程碑：`P2-M2` Procedure Runtime 与多 Agent 执行  
-> 依据：`design_docs/phase2/roadmap_milestones_v1.md`、`design_docs/procedure_runtime_draft.md`、ADR 0047、ADR 0048
+> 依据：`design_docs/phase2/roadmap_milestones_v1.md`、`design_docs/procedure_runtime.md`、ADR 0047、ADR 0048
 
 ## 1. 目标
 
@@ -15,14 +15,14 @@
 
 - 现有 agent runtime 仍以单 agent loop 为主。
 - M2 compaction 已存在，但主要服务长会话压缩，不是 task-state-oriented compact。
-- `Procedure Runtime` 当前仍是设计草案，尚无正式 runtime object、spec registry 与 active procedure lifecycle。
+- `Procedure Runtime` 设计已定稿，但 runtime object、spec registry 与 active procedure lifecycle 尚未实现。
 - devcoord 已验证“多执行单元协作”在开发治理层有价值，但这套能力尚未进入产品运行时。
 - 当前没有正式的 runtime handoff packet、sub-agent role contract、publish / merge contract。
 
 实现参考：
 - `src/agent/agent.py`
 - `src/agent/compaction.py`
-- `design_docs/procedure_runtime_draft.md`
+- `design_docs/procedure_runtime.md`
 - `decisions/0047-neomagi-multi-agent-single-soul-execution-units.md`
 
 ## 3. 复杂度评估与建议拆分
@@ -35,7 +35,10 @@
 ### P2-M2a：Procedure Runtime Core
 - `ProcedureSpec`
 - `ActiveProcedure`
+- `ProcedureContextRegistry` / `ProcedureGuardRegistry`
+- `ToolResult.context_patch`
 - validator / executor / transition
+- session-scoped single active procedure
 - checkpoint-based steering / resume
 
 ### P2-M2b：Multi-Agent Runtime
@@ -51,6 +54,9 @@
 - 引入正式 runtime object：
   - `ProcedureSpec`
   - `ActiveProcedure`
+- V1 先固定为 session-scoped single active procedure；并发 procedure 留待后续单独设计。
+- `AgentLoop` 只负责识别当前是否有 active procedure 并委托执行，不内联完整流程状态机。
+- `ProcedureRuntime` / `ProcedureExecutor` 负责 `guard -> execute -> patch -> transition -> CAS` 主链路。
 - 只约束：
   - checkpoint
   - guard

@@ -22,8 +22,8 @@
 
 ## 2. 跨阶段草案（按需）
 
-- `design_docs/procedure_runtime_draft.md`
-  - `P2-M2` 的底层 runtime control object 草案。
+- `design_docs/procedure_runtime.md`
+  - `P2-M2` 的底层 runtime control object 正式设计文档。
 - `design_docs/skill_objects_runtime_draft.md`
   - `P2-M1` 的 skill object 运行时经验层草案。
 - `design_docs/memory_architecture_v2.md`

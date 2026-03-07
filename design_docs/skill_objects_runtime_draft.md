@@ -2,7 +2,7 @@
 
 > 状态：draft  
 > 日期：2026-03-06  
-> 依据：`design_docs/phase2/roadmap_milestones_v1.md`、`design_docs/procedure_runtime_draft.md`、`design_docs/system_prompt.md`、ADR 0027、ADR 0048
+> 依据：`design_docs/phase2/roadmap_milestones_v1.md`、`design_docs/procedure_runtime.md`、`design_docs/system_prompt.md`、ADR 0027、ADR 0048
 
 ## 1. 这份草案解决什么问题
 

@@ -28,8 +28,8 @@
 5. `design_docs/memory_architecture_v2.md`
    - 长期 memory 原则：workspace 真源、retrieval plane、kernel / applications 分层。
 
-6. `design_docs/procedure_runtime_draft.md`
-   - Phase 2 方向的 deterministic procedure / runtime control 草案。
+6. `design_docs/procedure_runtime.md`
+   - Phase 2 方向的 deterministic procedure / runtime control 正式设计文档。
 
 7. `design_docs/skill_objects_runtime_draft.md`
    - `2+1` 中第二层：skill object 的结构、程序化投影与学习草案。
@@ -47,7 +47,7 @@
 - `design_docs/modules.md`
 - `design_docs/system_prompt.md`
 - `design_docs/memory_architecture_v2.md`
-- `design_docs/procedure_runtime_draft.md`
+- `design_docs/procedure_runtime.md`
 - `design_docs/skill_objects_runtime_draft.md`
 - `design_docs/devcoord_sqlite_control_plane.md`（仅在需要 devcoord / 协作控制面重构时）
 
