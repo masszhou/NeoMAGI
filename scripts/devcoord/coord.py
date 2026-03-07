@@ -618,19 +618,15 @@ def run_cli(
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     try:
         normalized = _normalize_argv(raw_argv)
-    except CoordError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    parser = build_parser()
-    args = parser.parse_args(normalized)
-    resolved_paths = paths or _resolve_paths()
-    resolved_store = store or SQLiteCoordStore(resolved_paths.control_db)
-    service = CoordService(
-        paths=resolved_paths,
-        store=resolved_store,
-        now_fn=now_fn or _utc_now,
-    )
-    try:
+        parser = build_parser()
+        args = parser.parse_args(normalized)
+        resolved_paths = paths or _resolve_paths()
+        resolved_store = store or SQLiteCoordStore(resolved_paths.control_db)
+        service = CoordService(
+            paths=resolved_paths,
+            store=resolved_store,
+            now_fn=now_fn or _utc_now,
+        )
         if args.command == "apply":
             _execute_action(service, args.action, _load_payload(args))
         else:
