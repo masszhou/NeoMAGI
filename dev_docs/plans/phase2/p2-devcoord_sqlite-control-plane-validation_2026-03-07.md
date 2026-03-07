@@ -42,6 +42,8 @@
 - `gate open -> ack -> heartbeat -> phase-complete -> review -> close -> milestone close`
 - `render / audit` projection、recovery handshake、watchdog/stale/log-pending
 
+其中 [`test_gate_close_and_milestone_close_with_sqlite`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/tests/test_devcoord.py#L1627) 已经覆盖了 `gate_close -> render -> audit -> milestone_close` 的 service 级闭环，但还不足以单独证明 CLI/workflow 级 closeout 守卫已经完全达成。
+
 但仅凭现有绿测，还不能直接判定“整个设计文档已达成”。当前至少有 4 个高风险点需要单独验证：
 
 1. `command send` 设计面要求覆盖 `STOP / WAIT / RESUME / PING`，而当前 parser 仅显式接受 `PING`。
@@ -88,19 +90,24 @@
 | PROTO-05 | Automated | `PING / UNCONFIRMED_INSTRUCTION / STALE_DETECTED / LOG_PENDING` 路径 | 现有对应 tests | 事件写入、watchdog 风险与 pending ACK 正确 | 已覆盖 |
 | PROTO-06 | Automated | `gate review / gate close / milestone close` 的 fail-closed 守卫 | `uv run pytest -q tests/test_devcoord.py -k "gate_close or milestone_close"` | 缺 render、缺 visible report、gates 未关时均拒绝 | 已覆盖 |
 | PROTO-07 | Automated | `command send` surface 覆盖 `STOP / WAIT / RESUME / PING` | 新增 parser/CLI 合同测试 + store/runtime 测试 | `command send --name STOP|WAIT|RESUME|PING` 都可创建 pending message，并可被 `command ack` 处理 | 待补，阻断项 |
-| PROTO-08 | Automated | `ACK` 与 `gate close` 的事务原子性 | 新增 fault-injection tests：在 message/gate 已更新后、event 未写入前注入异常 | 出错后 message/gate/event_seq 不留下半提交状态 | 待补，阻断项 |
+| PROTO-08 | Automated | `ACK` 与 `gate close` 的事务原子性 | 先做静态判定：审查 SQLite write path 是否单事务；若修复，再补 fault-injection regression tests | 当前实现若仍是多次独立 `commit()`，则直接判定 §7 未达成；修复后需证明出错时 message/gate/event_seq 不留下半提交状态 | 待补，阻断项 |
 
-`PROTO-08` 的设计意图必须非常具体：
+`PROTO-08` 应按两个阶段执行：
 
-- 为 `ack()` 增加一个可注入故障的 SQLite store double，模拟“message 已标 `effective=true`，但 `ACK` 事件写入失败”。
-- 为 `gate_close()` 增加一个可注入故障的 store double，模拟“gate 已标 closed，但 `GATE_CLOSE` 事件或 report evidence 回写失败”。
-- 断言失败后：
-  - `message.effective` 仍维持旧值
-  - `gate_state` 仍维持旧值
-  - `event_seq` 未被提前占用
-  - `audit` 不会看到一半新状态、一半旧状态
+- 阶段 1：当前状态判定
+  - 直接审查 [`scripts/devcoord/sqlite_store.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/scripts/devcoord/sqlite_store.py) 的写路径，确认 `ACK`、`gate close`、`event_seq + state update` 是否运行在单个 SQLite 事务中。
+  - 若仍然是多次独立 `commit()`，无需等待额外 fault injection，就应直接判定 [`design_docs/devcoord_sqlite_control_plane.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/devcoord_sqlite_control_plane.md) 第 7 节未达成。
 
-只要任一原子性断言失败，就不能宣称设计文档第 7 节“事务规则”已达成。
+- 阶段 2：修复后的回归验证
+  - 为 `ack()` 增加一个可注入故障的 SQLite store double，模拟“message 已标 `effective=true`，但 `ACK` 事件写入失败”。
+  - 为 `gate_close()` 增加一个可注入故障的 store double，模拟“gate 已标 closed，但 `GATE_CLOSE` 事件或 report evidence 回写失败”。
+  - 断言失败后：
+    - `message.effective` 仍维持旧值
+    - `gate_state` 仍维持旧值
+    - `event_seq` 未被提前占用
+    - `audit` 不会看到一半新状态、一半旧状态
+
+只要静态审查发现当前实现不是单事务，或修复后的回归断言仍失败，就不能宣称设计文档第 7 节“事务规则”已达成。
 
 ### C. projection / audit / closeout 闭环
 
@@ -110,7 +117,7 @@
 | PROJ-02 | Automated | `audit` 可报告 `reconciled`、`open_gates`、`pending_ack_messages`、`log_pending_events` | 现有 audit tests | `audit` 输出与 projection 对齐 | 已覆盖 |
 | PROJ-03 | Automated | `gate close` 前必须先 `render -> audit(reconciled=true)` | 现有 `test_gate_close_requires_rendered_reconciliation` | 未 render/未对账时 fail-closed | 已覆盖 |
 | PROJ-04 | Automated | projection 是可丢弃、可重建的 | 新增测试：render 后手工篡改 `heartbeat_events.jsonl` / `gate_state.md`，再次 render | projection 被 SQLite 当前真源重写回正确内容 | 待补 |
-| PROJ-05 | Automated | 关 gate 后必须再次 `render -> audit` 再 `milestone close` | 新增 CLI 或 service smoke | 第二轮 render/audit 后 `milestone close` 成功，且 closeout 结果与最新 gate state 一致 | 建议补强 |
+| PROJ-05 | Automated | 关 gate 后必须再次 `render -> audit` 再 `milestone close` | 现有 `test_gate_close_and_milestone_close_with_sqlite` 提供 service 级覆盖；仍需新增 CLI 或 workflow 级 smoke / 自动化 | 第二轮 render/audit 后 `milestone close` 成功，且 closeout 结果与最新 gate state 一致 | 已部分覆盖，待补强 |
 
 ### D. CLI surface 与 machine-first 入口
 
@@ -137,7 +144,7 @@ uv sync
 | --- | --- | --- | --- | --- | --- |
 | E2E-01 | Manual smoke | SQLite-only 全链路 closeout | 在临时 clone 内执行 `init -> gate open -> command ack -> event heartbeat -> event phase-complete -> gate review -> projection render -> projection audit -> gate close -> projection render -> projection audit -> milestone close` | 全链路成功，`.devcoord/control.db` 存在，最终 `audit.reconciled=true`，milestone 关闭 | 必做 |
 | E2E-02 | Manual smoke | restart / resume live trace | 在 `gate open + ack` 后执行 `event recovery-check` 与 `event state-sync-ok` | 生成对应事件，watchdog/progress 输出与 gate/commit 对齐 | 必做 |
-| CUT-01 | Manual smoke | 多 worktree 指向同一个 repo-root `.devcoord/control.db` | 在临时 clone 下 `git worktree add ../wt-a`、`git worktree add ../wt-b`，分别执行 `_resolve_paths().control_db` 检查与读写 smoke | 两个 worktree 看到相同 `control_db` 路径，A 打开的 gate 在 B 能 audit 到 | 必做 |
+| CUT-01 | Manual smoke | 多 worktree 指向同一个 repo-root `.devcoord/control.db` | 在临时 clone 下 `git worktree add ../wt-a`、`git worktree add ../wt-b`；A 执行 `init + gate open`；B 执行 `projection audit --milestone ...` 并核对 `_resolve_paths().control_db` | 两个 worktree 看到相同 `control_db` 路径，且 B 的 `audit.open_gates` 能看到 A 创建的 gate | 必做 |
 | CUT-02 | Manual smoke | `bd list --status open` 已回到 backlog 视角 | 在真实仓库跑 `bd list --status open --json > /tmp/bd-open.json`，再 `rg -n '"coord-kind-|Coord milestone|GATE_OPEN|GATE_EFFECTIVE|phase-complete"' /tmp/bd-open.json` | 无 live control-plane 对象命中 | 必做 |
 | CUT-03 | Manual smoke | devcoord-only 操作不依赖 beads sync | 在临时 clone 的 E2E smoke 中，不运行 `just beads-pull` / `just beads-push`，仅走 `coord.py` | control-plane 全链路不因 beads sync 缺失而失败 | 必做 |
 
