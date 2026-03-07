@@ -1,8 +1,9 @@
 # Beads Control Plane
 
-> 状态：approved
+> **状态：superseded**
 > 日期：2026-02-28
 > 适用范围：NeoMAGI 开发协作控制面（非产品运行时）
+> **Superseded by**: Devcoord Stage D hard cutover (2026-03-07). The devcoord control plane now uses SQLite exclusively (`.devcoord/control.db`). See [`design_docs/devcoord_sqlite_control_plane.md`](/design_docs/devcoord_sqlite_control_plane.md) for the current architecture and [`dev_docs/devcoord/sqlite_control_plane_runtime.md`](/dev_docs/devcoord/sqlite_control_plane_runtime.md) for the current operational runbook. The content below is preserved as historical context.
 
 ## 1. 目的
 

@@ -98,7 +98,7 @@ NeoMAGI 是一个开源 personal agent：有持久记忆、代表用户信息利
 
 ### 事件日志（强制，append-only）
 
-- PM 必须通过 `uv run python scripts/devcoord/coord.py ...` 记录协作控制事件；repo 根 `.beads` 为 SSOT，`dev_docs/logs/<phase>/{milestone}_{YYYY-MM-DD}/heartbeat_events.jsonl`、`gate_state.md`、`watchdog_status.md` 为 `render` 投影。
+- PM 必须通过 `uv run python scripts/devcoord/coord.py ...` 记录协作控制事件；`.devcoord/control.db` 为 SSOT，`dev_docs/logs/<phase>/{milestone}_{YYYY-MM-DD}/heartbeat_events.jsonl`、`gate_state.md`、`watchdog_status.md` 为 `render` 投影。
 - PM 收到任何状态变更消息（含 ACK、Gate、PING、报告同步）后，必须在同一 PM 回合先完成对应 control plane 写入，再发送下一条控制指令（append-first）。
 - 若同回合无法落盘，PM 必须先记录 `LOG_PENDING`（通过 `log-pending`），并在下一 PM 回合第一步补录。
 - 最大允许滞后为 1 个 PM 回合，不得跨 2 个 PM 回合。
@@ -265,7 +265,8 @@ bd close bd-42 --reason "Completed" --json
 bd 的 issue 数据仍存于本地 beads / Dolt 仓库，但本项目**不直接使用** `bd dolt pull` / `bd dolt push` / `bd sync` 做远端同步：
 
 - Each write auto-commits to local Dolt history
-- 若本轮改动包含 beads / bd issue 数据或 devcoord control plane 写入，统一通过 `just beads-pull` / `just beads-push` 同步
+- 若本轮改动包含 beads / bd issue 数据，统一通过 `just beads-pull` / `just beads-push` 同步
+- devcoord control-plane 写入不再触发 beads sync 要求（SSOT 已迁至 `.devcoord/control.db`）
 - 纯代码 / 文档 / 测试改动、且未改 beads 数据时，不需要运行 beads 同步
 - 不要直接运行 `bd dolt pull` / `bd dolt push` / `bd sync`
 
@@ -295,7 +296,7 @@ For more details, see README.md and docs/QUICKSTART.md.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   # If this session changed beads / bd issue / devcoord control-plane data:
+   # If this session changed beads / bd issue data:
    just beads-pull
    just beads-push
    git push
@@ -307,7 +308,7 @@ For more details, see README.md and docs/QUICKSTART.md.
 
 **CRITICAL RULES:**
 - Work is NOT complete until `git push` succeeds
-- `just beads-pull` / `just beads-push` 只在本轮实际改动 beads 数据时才是必需步骤
+- `just beads-pull` / `just beads-push` 只在本轮实际改动 beads / bd issue 数据时才是必需步骤；devcoord control-plane 写入不再触发 beads sync
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
