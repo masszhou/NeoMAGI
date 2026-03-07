@@ -13,7 +13,7 @@ PM-side operating contract for NeoMAGI devcoord after the control plane has been
 - Prefer grouped CLI commands for human/debug use (e.g., `gate open`, `projection audit`). For machine-first payloads, use `apply <action> --payload-stdin`.
 - Never edit `dev_docs/logs/phase1/*`, `dev_docs/logs/phase2/*`, `dev_docs/progress/project_progress.md`, or gate projections by hand.
 - Never write devcoord state by calling `bd` directly.
-- Treat repo-root `.beads` as the only default shared control plane.
+- `.devcoord/control.db` is the only control-plane SSOT. The beads backend has been retired.
 
 ## Role boundaries
 
@@ -23,7 +23,7 @@ PM must not record teammate actions: `command ack`, `event heartbeat`, `event ph
 
 ## Workflow
 
-1. Verify familiarity with `AGENTTEAMS.md`, `dev_docs/devcoord/beads_control_plane.md`, and the latest milestone plan/review; read only if not already in context.
+1. Verify familiarity with `AGENTTEAMS.md`, `design_docs/devcoord_sqlite_control_plane.md`, and the latest milestone plan/review; read only if not already in context.
 2. For every teammate status change, record the matching devcoord action first, then continue coordination.
 3. If append-first cannot be satisfied in the same PM turn, immediately record `event log-pending` and backfill on the next turn.
 4. When spawning Claude Code teammate actions, include `target_commit` and require the teammate to verify `git rev-parse HEAD == target_commit` before any devcoord write.

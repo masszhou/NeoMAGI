@@ -69,7 +69,7 @@
 
 ## 事件日志（强制，append-only）
 
-- PM 必须通过 `uv run python scripts/devcoord/coord.py ...` 记录协作控制事件；repo 根 `.beads` 为 SSOT，`dev_docs/logs/{milestone}_{YYYY-MM-DD}/heartbeat_events.jsonl`、`gate_state.md`、`watchdog_status.md` 为 `render` 投影。
+- PM 必须通过 `uv run python scripts/devcoord/coord.py ...` 记录协作控制事件；`.devcoord/control.db` 为 SSOT，`dev_docs/logs/<phase>/{milestone}_{YYYY-MM-DD}/heartbeat_events.jsonl`、`gate_state.md`、`watchdog_status.md` 为 `render` 投影。
 - PM 收到任何状态变更消息（含 ACK、Gate、PING、报告同步）后，必须在同一 PM 回合先完成对应 control plane 写入，再发送下一条控制指令（append-first）。
 - 若同回合无法落盘，PM 必须先记录 `LOG_PENDING`（通过 `log-pending`），并在下一 PM 回合第一步补录。
 - 最大允许滞后为 1 个 PM 回合，不得跨 2 个 PM 回合。

@@ -19,7 +19,7 @@
 - `gate_state.md`
 - `watchdog_status.md`
 
-控制面 SSOT 在 repo 根 `.beads/`；若需要追加协作状态，必须先写 control plane，再 `render` 出这些文件。
+控制面 SSOT 在 `.devcoord/control.db`；若需要追加协作状态，必须先写 control plane，再 `render` 出这些文件。
 
 ## 可选人工日志
 

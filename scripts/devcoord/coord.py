@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections.abc import Callable, Sequence
 from datetime import date
@@ -15,7 +14,6 @@ if __package__ in {None, ""}:
         sys.path.insert(0, str(_REPO_ROOT))
     from scripts.devcoord.model import (
         DEFAULT_ROLES,
-        LEGACY_BEADS_SUBDIR,
         CoordError,
         CoordPaths,
         _git_output,
@@ -23,14 +21,12 @@ if __package__ in {None, ""}:
     from scripts.devcoord.service import CoordService, _none_if_placeholder, _utc_now
     from scripts.devcoord.sqlite_store import SQLiteCoordStore
     from scripts.devcoord.store import (
-        BeadsCoordStore,
         CoordStore,
         MemoryCoordStore,
     )
 else:
     from .model import (
         DEFAULT_ROLES,
-        LEGACY_BEADS_SUBDIR,
         CoordError,
         CoordPaths,
         _git_output,
@@ -38,13 +34,11 @@ else:
     from .service import CoordService, _none_if_placeholder, _utc_now
     from .sqlite_store import SQLiteCoordStore
     from .store import (
-        BeadsCoordStore,
         CoordStore,
         MemoryCoordStore,
     )
 
 __all__ = [
-    "BeadsCoordStore",
     "CoordError",
     "CoordPaths",
     "CoordService",
@@ -58,11 +52,11 @@ __all__ = [
     "_resolve_paths",
 ]
 
+_RETIRED_FLAGS = frozenset({"--backend", "--beads-dir", "--bd-bin", "--dolt-bin"})
+
 # ---------------------------------------------------------------------------
 # Argv normalization: flat alias -> grouped canonical form
 # ---------------------------------------------------------------------------
-
-_ROOT_FLAGS_WITH_VALUE = frozenset({"--backend", "--beads-dir", "--bd-bin", "--dolt-bin"})
 
 _FLAT_ALIAS_MAP: dict[str, list[str]] = {
     "open-gate": ["gate", "open"],
@@ -86,21 +80,22 @@ _FLAT_ALIAS_MAP: dict[str, list[str]] = {
 def _normalize_argv(argv: Sequence[str]) -> list[str]:
     """Rewrite legacy flat commands to grouped canonical tokens.
 
-    Only the first command-position token is inspected; option values
-    are never touched.
+    Retired flags (--backend, --beads-dir, --bd-bin, --dolt-bin) trigger
+    an immediate error instead of being silently skipped.
     """
     result = list(argv)
+    for token in result:
+        bare = token.split("=", 1)[0] if "=" in token else token
+        if bare in _RETIRED_FLAGS:
+            raise CoordError(
+                f"{bare} has been retired. "
+                "The devcoord control plane now uses SQLite exclusively "
+                "(.devcoord/control.db). Remove the flag and use the "
+                "canonical grouped CLI (e.g. gate open, projection render)."
+            )
     idx = 0
     while idx < len(result):
         token = result[idx]
-        if token.startswith("--") and "=" in token:
-            flag = token.split("=", 1)[0]
-            if flag in _ROOT_FLAGS_WITH_VALUE:
-                idx += 1
-                continue
-        if token in _ROOT_FLAGS_WITH_VALUE:
-            idx += 2
-            continue
         if token.startswith("-"):
             idx += 1
             continue
@@ -116,28 +111,8 @@ def _normalize_argv(argv: Sequence[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="NeoMAGI devcoord control plane wrapper")
-    parser.add_argument(
-        "--backend",
-        choices=("sqlite", "beads", "auto"),
-        default=os.environ.get("DEVCOORD_BACKEND", "auto"),
-        help="Control plane backend: sqlite, beads, or auto (default). "
-        "Auto selects sqlite if .devcoord/control.db exists.",
-    )
-    parser.add_argument(
-        "--beads-dir",
-        default=os.environ.get("BEADS_DIR"),
-        help="Shared BEADS_DIR. Defaults to the shared repo root containing .beads",
-    )
-    parser.add_argument(
-        "--bd-bin",
-        default=os.environ.get("COORD_BD_BIN", "bd"),
-        help="Path to bd binary",
-    )
-    parser.add_argument(
-        "--dolt-bin",
-        default=os.environ.get("COORD_DOLT_BIN", "dolt"),
-        help="Path to dolt binary",
+    parser = argparse.ArgumentParser(
+        description="NeoMAGI devcoord control plane (SQLite-only, .devcoord/control.db)"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -306,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
     ms_sub = ms_p.add_subparsers(dest="subcommand", required=True)
 
     ms_close_p = ms_sub.add_parser(
-        "close", help="Close all control-plane beads for a completed milestone"
+        "close", help="Close all control-plane records for a completed milestone"
     )
     ms_close_p.set_defaults(_action="milestone-close")
     ms_close_p.add_argument("--milestone", required=True)
@@ -640,12 +615,16 @@ def run_cli(
     paths: CoordPaths | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> int:
-    parser = build_parser()
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
-    normalized = _normalize_argv(raw_argv)
+    try:
+        normalized = _normalize_argv(raw_argv)
+    except CoordError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    parser = build_parser()
     args = parser.parse_args(normalized)
-    resolved_paths = paths or _resolve_paths(args.beads_dir)
-    resolved_store = store or _select_store(args, resolved_paths)
+    resolved_paths = paths or _resolve_paths()
+    resolved_store = store or SQLiteCoordStore(resolved_paths.control_db)
     service = CoordService(
         paths=resolved_paths,
         store=resolved_store,
@@ -673,53 +652,14 @@ def main() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_paths(beads_dir_override: str | None) -> CoordPaths:
+def _resolve_paths() -> CoordPaths:
     git_common_dir = _resolve_git_common_dir(Path.cwd())
     workspace_root = _shared_workspace_root(Path.cwd())
     control_root = workspace_root / ".devcoord"
-    if beads_dir_override:
-        beads_dir = Path(beads_dir_override).expanduser()
-    else:
-        control_db = control_root / "control.db"
-        if control_db.exists():
-            beads_dir = workspace_root
-        else:
-            root_beads = workspace_root / ".beads" / "metadata.json"
-            legacy_beads_root = workspace_root / LEGACY_BEADS_SUBDIR
-            legacy_beads = legacy_beads_root / ".beads" / "metadata.json"
-            if legacy_beads.exists() and not root_beads.exists():
-                raise CoordError(
-                    "legacy shared control plane detected at .coord/beads; "
-                    "migrate to repo root .beads or pass --beads-dir explicitly"
-                )
-            beads_dir = workspace_root
-    if not beads_dir.is_absolute():
-        beads_dir = (workspace_root / beads_dir).resolve()
     return CoordPaths(
         workspace_root=workspace_root,
-        beads_dir=beads_dir,
         git_common_dir=git_common_dir,
         control_root=control_root,
-    )
-
-
-def _select_store(args: argparse.Namespace, paths: CoordPaths) -> CoordStore:
-    backend = getattr(args, "backend", "auto")
-    if backend == "sqlite":
-        return SQLiteCoordStore(paths.control_db)
-    if backend == "beads":
-        return BeadsCoordStore(
-            paths.beads_dir,
-            bd_bin=args.bd_bin,
-            dolt_bin=args.dolt_bin,
-        )
-    # auto: prefer sqlite if control.db exists or if init command (bootstrap)
-    if paths.control_db.exists() or getattr(args, "command", "") == "init":
-        return SQLiteCoordStore(paths.control_db)
-    return BeadsCoordStore(
-        paths.beads_dir,
-        bd_bin=args.bd_bin,
-        dolt_bin=args.dolt_bin,
     )
 
 

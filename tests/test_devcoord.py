@@ -22,7 +22,7 @@ from scripts.devcoord.coord import (
     run_cli,
 )
 from scripts.devcoord.sqlite_store import SQLITE_SCHEMA_VERSION
-from scripts.devcoord.store import BeadsCoordStore, CoordRecord
+from scripts.devcoord.store import CoordRecord
 
 
 class FakeClock:
@@ -40,10 +40,12 @@ def make_paths(tmp_path: Path) -> CoordPaths:
     (workspace_root / "dev_docs" / "logs").mkdir(parents=True, exist_ok=True)
     (workspace_root / "dev_docs" / "progress").mkdir(parents=True, exist_ok=True)
     (workspace_root / ".git").mkdir(parents=True, exist_ok=True)
+    control_root = workspace_root / ".devcoord"
+    control_root.mkdir(parents=True, exist_ok=True)
     return CoordPaths(
         workspace_root=workspace_root,
-        beads_dir=workspace_root / ".coord" / "beads",
         git_common_dir=workspace_root / ".git",
+        control_root=control_root,
     )
 
 
@@ -98,7 +100,7 @@ def init_git_repo_with_review(paths: CoordPaths, report_relpath: str) -> str:
     ).stdout.strip()
 
 
-def test_init_creates_milestone_and_agent_beads(tmp_path: Path) -> None:
+def test_init_creates_milestone_and_agent_records(tmp_path: Path) -> None:
     store = MemoryCoordStore()
     paths = make_paths(tmp_path)
 
@@ -267,39 +269,21 @@ def test_open_gate_canonicalizes_target_commit_when_git_can_resolve_it(tmp_path:
     ]
 
 
-def test_resolve_paths_defaults_to_workspace_root_for_root_beads(
+def test_resolve_paths_returns_sqlite_control_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = tmp_path / "workspace"
-    (workspace_root / ".beads").mkdir(parents=True, exist_ok=True)
-    (workspace_root / ".beads" / "metadata.json").write_text("{}", "utf-8")
     git_common_dir = workspace_root / ".git"
     git_common_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
     monkeypatch.setattr(coord_module, "_resolve_git_common_dir", lambda cwd: git_common_dir)
 
-    paths = _resolve_paths(None)
+    paths = _resolve_paths()
 
     assert paths.workspace_root == workspace_root
-    assert paths.beads_dir == workspace_root
-    assert paths.lock_file == workspace_root / ".devcoord" / "coord.lock"
     assert paths.control_root == workspace_root / ".devcoord"
-
-
-def test_resolve_paths_rejects_legacy_coord_beads_without_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    legacy_root = workspace_root / ".coord" / "beads" / ".beads"
-    legacy_root.mkdir(parents=True, exist_ok=True)
-    (legacy_root / "metadata.json").write_text("{}", "utf-8")
-    git_common_dir = workspace_root / ".git"
-    git_common_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
-    monkeypatch.setattr(coord_module, "_resolve_git_common_dir", lambda cwd: git_common_dir)
-
-    with pytest.raises(CoordError, match="legacy shared control plane detected at .coord/beads"):
-        _resolve_paths(None)
+    assert paths.control_db == workspace_root / ".devcoord" / "control.db"
+    assert paths.lock_file == workspace_root / ".devcoord" / "coord.lock"
 
 
 def test_ack_fails_closed_without_pending_message(tmp_path: Path) -> None:
@@ -1214,7 +1198,7 @@ def test_milestone_close_requires_clean_audit(tmp_path: Path) -> None:
         service.close_milestone("M7")
 
 
-def test_milestone_close_closes_all_milestone_beads(tmp_path: Path) -> None:
+def test_milestone_close_closes_all_milestone_records(tmp_path: Path) -> None:
     store = MemoryCoordStore()
     paths = make_paths(tmp_path)
     report_path = "dev_docs/reviews/m7_phase1_2026-03-01.md"
@@ -1414,215 +1398,6 @@ class TestMemoryCoordStoreContract:
         assert listed[0].title == created.title
 
 
-class TestBeadsCoordStoreContract:
-    """Contract tests for BeadsCoordStore with mocked subprocess."""
-
-    def _make_store(self, tmp_path: Path) -> BeadsCoordStore:
-        beads_dir = tmp_path / "beads"
-        beads_dir.mkdir()
-        (beads_dir / ".beads").mkdir()
-        (beads_dir / ".beads" / "metadata.json").write_text("{}", "utf-8")
-        return BeadsCoordStore(beads_dir, bd_bin="bd", dolt_bin="dolt")
-
-    def _bd_list_payload(self, records: list[dict]) -> str:
-        return json.dumps(records)
-
-    def test_list_records_filters_by_kind(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store = self._make_store(tmp_path)
-        bd_output = self._bd_list_payload(
-            [
-                {
-                    "id": "r1",
-                    "title": "milestone",
-                    "description": "",
-                    "type": "task",
-                    "status": "open",
-                    "labels": "coord",
-                    "metadata": json.dumps(
-                        {"milestone": "m1", "coord_kind": "milestone"}
-                    ),
-                },
-                {
-                    "id": "r2",
-                    "title": "event",
-                    "description": "",
-                    "type": "task",
-                    "status": "open",
-                    "labels": "coord",
-                    "metadata": json.dumps(
-                        {"milestone": "m1", "coord_kind": "event"}
-                    ),
-                },
-                {
-                    "id": "r3",
-                    "title": "other milestone",
-                    "description": "",
-                    "type": "task",
-                    "status": "open",
-                    "labels": "coord",
-                    "metadata": json.dumps(
-                        {"milestone": "m2", "coord_kind": "event"}
-                    ),
-                },
-            ]
-        )
-
-        def fake_run(command, **kwargs):
-            return subprocess.CompletedProcess(command, 0, stdout=bd_output, stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        all_m1 = store.list_records("m1")
-        assert len(all_m1) == 2
-
-        milestones = store.list_records("m1", kind="milestone")
-        assert len(milestones) == 1
-        assert milestones[0].record_id == "r1"
-
-        events = store.list_records("m1", kind="event")
-        assert len(events) == 1
-        assert events[0].record_id == "r2"
-
-        gates = store.list_records("m1", kind="gate")
-        assert gates == []
-
-    def test_list_records_returns_empty_when_no_metadata_file(self, tmp_path: Path) -> None:
-        beads_dir = tmp_path / "beads"
-        beads_dir.mkdir()
-        store = BeadsCoordStore(beads_dir)
-        assert store.list_records("m1") == []
-
-    def test_create_record_reloads_from_bd(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store = self._make_store(tmp_path)
-        calls: list[list[str]] = []
-
-        def fake_run(command, **kwargs):
-            calls.append(list(command))
-            cmd_str = " ".join(command)
-            if "create" in cmd_str:
-                return subprocess.CompletedProcess(command, 0, stdout="new-id-1\n", stderr="")
-            if "list" in cmd_str:
-                payload = json.dumps(
-                    [
-                        {
-                            "id": "new-id-1",
-                            "title": "created",
-                            "description": "d",
-                            "type": "task",
-                            "status": "open",
-                            "labels": "coord",
-                            "metadata": json.dumps({"milestone": "m1", "coord_kind": "event"}),
-                            "created_at": "2026-03-01T10:00:00Z",
-                            "updated_at": "2026-03-01T10:00:00Z",
-                        }
-                    ]
-                )
-                return subprocess.CompletedProcess(command, 0, stdout=payload, stderr="")
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        rec = store.create_record(
-            title="created",
-            record_type="task",
-            description="d",
-            labels=["coord"],
-            metadata={"milestone": "m1", "coord_kind": "event"},
-        )
-        assert rec.record_id == "new-id-1"
-        assert rec.created_at == "2026-03-01T10:00:00Z"
-        create_calls = [c for c in calls if "create" in " ".join(c)]
-        list_calls = [c for c in calls if "list" in " ".join(c)]
-        assert len(create_calls) == 1
-        assert len(list_calls) == 1
-
-    def test_update_record_reloads_from_bd(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store = self._make_store(tmp_path)
-
-        def fake_run(command, **kwargs):
-            cmd_str = " ".join(command)
-            if "update" in cmd_str:
-                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-            if "list" in cmd_str:
-                payload = json.dumps(
-                    [
-                        {
-                            "id": "r1",
-                            "title": "updated title",
-                            "description": "d",
-                            "type": "task",
-                            "status": "closed",
-                            "labels": "coord",
-                            "metadata": json.dumps({"milestone": "m1", "coord_kind": "gate"}),
-                            "updated_at": "2026-03-01T11:00:00Z",
-                        }
-                    ]
-                )
-                return subprocess.CompletedProcess(command, 0, stdout=payload, stderr="")
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        rec = store.update_record("r1", title="updated title", status="closed")
-        assert rec.record_id == "r1"
-        assert rec.title == "updated title"
-        assert rec.status == "closed"
-        assert rec.updated_at == "2026-03-01T11:00:00Z"
-
-    def test_create_record_raises_on_empty_id(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store = self._make_store(tmp_path)
-
-        def fake_run(command, **kwargs):
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        with pytest.raises(CoordError, match="empty record id"):
-            store.create_record(
-                title="bad",
-                record_type="task",
-                description="",
-                labels=["coord"],
-                metadata={"milestone": "m1", "coord_kind": "event"},
-            )
-
-    def test_reload_raises_when_record_not_found(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        store = self._make_store(tmp_path)
-
-        call_count = 0
-
-        def fake_run(command, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            cmd_str = " ".join(command)
-            if "create" in cmd_str:
-                return subprocess.CompletedProcess(command, 0, stdout="ghost-id\n", stderr="")
-            if "list" in cmd_str:
-                return subprocess.CompletedProcess(command, 0, stdout="[]", stderr="")
-            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-
-        with pytest.raises(CoordError, match="ghost-id not found after write"):
-            store.create_record(
-                title="ghost",
-                record_type="task",
-                description="",
-                labels=["coord"],
-                metadata={"milestone": "m1", "coord_kind": "event"},
-            )
-
-
 class TestCoordRecordFromMapping:
     """Unit tests for CoordRecord.from_mapping edge cases."""
 
@@ -1678,7 +1453,6 @@ def make_sqlite_paths(tmp_path: Path) -> CoordPaths:
     control_root.mkdir(parents=True, exist_ok=True)
     return CoordPaths(
         workspace_root=workspace_root,
-        beads_dir=workspace_root,
         git_common_dir=workspace_root / ".git",
         control_root=control_root,
     )
@@ -2041,49 +1815,19 @@ class TestSQLitePathResolution:
         paths = make_sqlite_paths(tmp_path)
         assert paths.lock_file == paths.control_root / "coord.lock"
 
-    def test_default_control_root_when_none(self, tmp_path: Path) -> None:
-        paths = CoordPaths(
-            workspace_root=tmp_path,
-            beads_dir=tmp_path,
-            git_common_dir=tmp_path / ".git",
-        )
-        assert paths.control_db == tmp_path / ".devcoord" / "control.db"
-        assert paths.lock_file == tmp_path / ".devcoord" / "coord.lock"
-
-
-class TestSQLiteBackendSelection:
-    def test_auto_selects_sqlite_when_control_db_exists(
+class TestSQLitePathResolutionFromCLI:
+    def test_resolve_paths_returns_devcoord_control_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         workspace_root = tmp_path / "workspace"
-        control_root = workspace_root / ".devcoord"
-        control_root.mkdir(parents=True, exist_ok=True)
-        (control_root / "control.db").write_text("", "utf-8")
         (workspace_root / ".git").mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
         monkeypatch.setattr(
             coord_module, "_resolve_git_common_dir", lambda cwd: workspace_root / ".git"
         )
-        paths = _resolve_paths(None)
-        assert paths.control_root == control_root
-
-    def test_auto_skips_legacy_beads_check_when_control_db_exists(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        workspace_root = tmp_path / "workspace"
-        control_root = workspace_root / ".devcoord"
-        control_root.mkdir(parents=True, exist_ok=True)
-        (control_root / "control.db").write_text("", "utf-8")
-        legacy_root = workspace_root / ".coord" / "beads" / ".beads"
-        legacy_root.mkdir(parents=True, exist_ok=True)
-        (legacy_root / "metadata.json").write_text("{}", "utf-8")
-        (workspace_root / ".git").mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
-        monkeypatch.setattr(
-            coord_module, "_resolve_git_common_dir", lambda cwd: workspace_root / ".git"
-        )
-        paths = _resolve_paths(None)
-        assert paths.control_root == control_root
+        paths = _resolve_paths()
+        assert paths.control_root == workspace_root / ".devcoord"
+        assert paths.control_db == workspace_root / ".devcoord" / "control.db"
 
 
 class TestSQLiteStaleDetectedAndLogPending:
@@ -2174,7 +1918,7 @@ class TestSQLiteUnconfirmedInstruction:
 
 class TestSQLiteFreshStartBootstrap:
     def test_fresh_start_from_empty_db(self, tmp_path: Path) -> None:
-        """Full lifecycle from empty .devcoord/ - no beads needed."""
+        """Full lifecycle from empty .devcoord/ directory."""
         paths = make_sqlite_paths(tmp_path)
         store = SQLiteCoordStore(paths.control_db)
         clock = FakeClock(
@@ -2592,24 +2336,25 @@ class TestArgvNormalization:
             "M7",
         ]
 
-    def test_with_root_backend_flag(self) -> None:
-        assert _normalize_argv(["--backend", "sqlite", "open-gate", "--milestone", "M7"]) == [
-            "--backend",
-            "sqlite",
-            "gate",
-            "open",
-            "--milestone",
-            "M7",
-        ]
+    def test_retired_backend_flag_raises(self) -> None:
+        with pytest.raises(CoordError, match="--backend has been retired"):
+            _normalize_argv(["--backend", "sqlite", "open-gate", "--milestone", "M7"])
 
-    def test_with_root_flag_equals_syntax(self) -> None:
-        assert _normalize_argv(["--backend=sqlite", "open-gate", "--milestone", "M7"]) == [
-            "--backend=sqlite",
-            "gate",
-            "open",
-            "--milestone",
-            "M7",
-        ]
+    def test_retired_backend_equals_syntax_raises(self) -> None:
+        with pytest.raises(CoordError, match="--backend has been retired"):
+            _normalize_argv(["--backend=sqlite", "open-gate", "--milestone", "M7"])
+
+    def test_retired_beads_dir_flag_raises(self) -> None:
+        with pytest.raises(CoordError, match="--beads-dir has been retired"):
+            _normalize_argv(["--beads-dir", "/tmp/x", "init", "--milestone", "M7"])
+
+    def test_retired_bd_bin_flag_raises(self) -> None:
+        with pytest.raises(CoordError, match="--bd-bin has been retired"):
+            _normalize_argv(["--bd-bin", "bd", "init", "--milestone", "M7"])
+
+    def test_retired_dolt_bin_flag_raises(self) -> None:
+        with pytest.raises(CoordError, match="--dolt-bin has been retired"):
+            _normalize_argv(["--dolt-bin", "dolt", "init", "--milestone", "M7"])
 
     def test_does_not_rewrite_option_values(self) -> None:
         result = _normalize_argv([
