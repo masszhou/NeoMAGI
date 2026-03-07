@@ -505,7 +505,7 @@ coord.py apply ...
 - 这不是“只换一个 adapter 就结束”的工作
 - 默认应先实现 `Stage A` 已批准的 `CoordStore` seam
 - 只有当 SQLite typed schema 证明现有 seam 不足时，才允许做窄幅、增量式 protocol 演化
-- 一旦发生该类演化，`MemoryCoordStore` 与 `BeadsCoordStore` 必须在同一实现切片内同步适配
+- 一旦发生该类演化，`MemoryCoordStore` 必须在同一实现切片内同步适配
 - `Stage B` 允许为适配 typed SQLite schema 改造 service 读写路径
 - 但不要求一次性把整个 runtime 重写成一套新的 typed domain object 系统
 
@@ -513,43 +513,37 @@ coord.py apply ...
 
 ## 11. 迁移策略
 
-### Stage 0: ADR accepted
+> **所有 Stage 已于 2026-03-07 完成。** 以下描述为设计时的历史规划；当前 runtime 已完成 Stage D hard cutover，`--backend` / `--beads-dir` / `--bd-bin` / `--dolt-bin` 已退役，`BeadsCoordStore` / `CoordPaths.beads_dir` 已移除。
+
+### Stage 0: ADR accepted ✅
 
 - 接受 ADR 0050
 - 冻结 `devcoord` 对 `beads` 的新增专属扩张
 
-### Stage 1: Store abstraction
+### Stage A: Store abstraction ✅
 
 - 引入 `CoordStore` 接口
 - 保持当前行为不变
 
-### Stage 2: SQLite implementation
+### Stage B: SQLite implementation ✅
 
 - 新增 `.devcoord/control.db`
 - 实现 `SQLiteCoordStore`
-- 让 `render/audit` 改为从 SQLite 读取
-- 新 store 必须支持 fresh bootstrap，不依赖旧 `beads` control-plane 数据导入
-- `CoordPaths` 在这一阶段新增 `control_root` / `control_db` 一类语义字段
-- `beads_dir` 可暂时保留为兼容字段，但不再作为 SQLite 路径真源
-- `_locked()` 的文件锁语义保持不变，但路径准备逻辑必须切到 `control_root` / `lock_file.parent`
-- `_resolve_paths()` 中现有 legacy beads 检测逻辑必须重新审查，避免误伤 SQLite-only 路径
-- runtime selection 采用最小接线：
-  - 默认根据 `.devcoord/control.db` 是否存在自动选择 SQLite
-  - `--backend` 作为显式 override
+- `render/audit` 从 SQLite 读取
+- `CoordPaths` 新增 `control_root` / `control_db`
 
-### Stage 3: Command regrouping
+### Stage C: Command regrouping ✅
 
 - 新增 grouped CLI commands
-- 保留旧 flat aliases
-- 将 PM/backend/tester skills 与 runbook 的新示例切到 grouped 或 `apply` 形式
-- 兼容期内旧 flat aliases 仍可继续支撑未及时更新的 skill / prompt
+- 旧 flat aliases 保留为兼容别名
 
-### Stage 4: Cutover
+### Stage D: Hard cutover ✅
 
-- 停止把 control-plane 对象写入 `beads`
+- `BeadsCoordStore` / `CoordPaths.beads_dir` / `LEGACY_BEADS_SUBDIR` 移除
+- `--backend` / `--beads-dir` / `--bd-bin` / `--dolt-bin` 退役（fail-fast）
 - `beads` 只保留 backlog tasks
-- 历史 `coord` beads 记录统一关闭或归档，不导入 SQLite
-- 归档或 supersede `beads_control_plane.md`
+- `beads_control_plane.md` 标记为 superseded
+- legacy `.beads` split-brain guard 已加入 `_resolve_paths()`
 
 ## 12. 验收
 

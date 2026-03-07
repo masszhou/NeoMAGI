@@ -1829,6 +1829,39 @@ class TestSQLitePathResolutionFromCLI:
         assert paths.control_root == workspace_root / ".devcoord"
         assert paths.control_db == workspace_root / ".devcoord" / "control.db"
 
+    def test_legacy_beads_without_control_db_raises_split_brain_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace_root = tmp_path / "workspace"
+        (workspace_root / ".git").mkdir(parents=True, exist_ok=True)
+        beads_marker = workspace_root / ".beads" / "metadata.json"
+        beads_marker.parent.mkdir(parents=True, exist_ok=True)
+        beads_marker.write_text("{}", "utf-8")
+        monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
+        monkeypatch.setattr(
+            coord_module, "_resolve_git_common_dir", lambda cwd: workspace_root / ".git"
+        )
+        with pytest.raises(CoordError, match="Legacy beads control plane detected"):
+            _resolve_paths()
+
+    def test_legacy_beads_with_control_db_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        workspace_root = tmp_path / "workspace"
+        (workspace_root / ".git").mkdir(parents=True, exist_ok=True)
+        beads_marker = workspace_root / ".beads" / "metadata.json"
+        beads_marker.parent.mkdir(parents=True, exist_ok=True)
+        beads_marker.write_text("{}", "utf-8")
+        control_root = workspace_root / ".devcoord"
+        control_root.mkdir(parents=True, exist_ok=True)
+        (control_root / "control.db").write_text("", "utf-8")
+        monkeypatch.setattr(coord_module, "_shared_workspace_root", lambda cwd: workspace_root)
+        monkeypatch.setattr(
+            coord_module, "_resolve_git_common_dir", lambda cwd: workspace_root / ".git"
+        )
+        paths = _resolve_paths()
+        assert paths.control_root == control_root
+
 
 class TestSQLiteStaleDetectedAndLogPending:
     def test_stale_detected_event(self, tmp_path: Path) -> None:

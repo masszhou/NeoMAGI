@@ -23,7 +23,7 @@ PM must not record teammate actions: `command ack`, `event heartbeat`, `event ph
 
 ## Workflow
 
-1. Verify familiarity with `AGENTTEAMS.md`, `design_docs/devcoord_sqlite_control_plane.md`, and the latest milestone plan/review; read only if not already in context.
+1. Verify familiarity with `AGENTTEAMS.md`, `dev_docs/devcoord/sqlite_control_plane_runtime.md`, and the latest milestone plan/review; read only if not already in context.
 2. For every teammate status change, record the matching devcoord action first, then continue coordination.
 3. If append-first cannot be satisfied in the same PM turn, immediately record `event log-pending` and backfill on the next turn.
 4. When spawning Claude Code teammate actions, include `target_commit` and require the teammate to verify `git rev-parse HEAD == target_commit` before any devcoord write.

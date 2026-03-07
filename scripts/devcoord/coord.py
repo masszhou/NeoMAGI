@@ -648,7 +648,7 @@ def main() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Path resolution and store selection (unchanged)
+# Path resolution
 # ---------------------------------------------------------------------------
 
 
@@ -656,6 +656,23 @@ def _resolve_paths() -> CoordPaths:
     git_common_dir = _resolve_git_common_dir(Path.cwd())
     workspace_root = _shared_workspace_root(Path.cwd())
     control_root = workspace_root / ".devcoord"
+    control_db = control_root / "control.db"
+
+    # Guard: detect legacy beads control plane that could cause split-brain.
+    # If a .beads control plane exists but no SQLite control.db has been
+    # bootstrapped yet, refuse to proceed — the operator must explicitly
+    # run the one-time cutover checklist first.
+    legacy_beads_marker = workspace_root / ".beads" / "metadata.json"
+    if legacy_beads_marker.exists() and not control_db.exists():
+        raise CoordError(
+            "Legacy beads control plane detected at .beads/ but no "
+            ".devcoord/control.db exists yet. To avoid split-brain, "
+            "complete the Stage D cutover checklist "
+            "(see dev_docs/devcoord/sqlite_control_plane_runtime.md §7) "
+            "before running devcoord commands. "
+            "If the legacy .beads/ is no longer active, remove it first."
+        )
+
     return CoordPaths(
         workspace_root=workspace_root,
         git_common_dir=git_common_dir,
