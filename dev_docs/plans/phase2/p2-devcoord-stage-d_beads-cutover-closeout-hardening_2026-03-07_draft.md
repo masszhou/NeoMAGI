@@ -16,7 +16,11 @@
 
 ## Context
 
-`Stage A` 已完成 `CoordStore` seam，`Stage B` 已完成 `.devcoord/control.db`、`SQLiteCoordStore` 与 `render/audit` 切换。按当前用户口径，`Stage C` 正在进行中，意味着人类可见 CLI surface 仍处于从 flat commands 向 grouped commands 收敛的阶段。
+`Stage A` 已完成 `CoordStore` seam，`Stage B` 已完成 `.devcoord/control.db`、`SQLiteCoordStore` 与 `render/audit` 切换，`Stage C` 也已完成 grouped CLI surface 收敛并通过验收。这意味着：
+
+- `init / gate / command / event / projection / milestone / apply` 已成为当前 canonical CLI surface
+- flat aliases 仍处于兼容期，但不再是主要帮助面
+- `Stage D` 不需要再等待命令面定版，而是可以直接围绕已落地的 grouped CLI 做 beads hard cutover
 
 当前剩余问题已经不再是“SQLite 能不能工作”，而是“系统何时停止把 beads 兼容层当成现役 runtime 组成部分”：
 
@@ -59,9 +63,9 @@
 
 - `Stage A` 已完成
 - `Stage B` 已完成
-- `Stage C` 正在进行中
+- `Stage C` 已完成并验收通过
 
-因此本文件当前只能作为 **Stage D draft / 预备方案**，不应在 `Stage C` 仍未定版时提前执行 hard cutover。
+因此当前仓库状态已经满足 `Stage D` 的关键前置条件，本文件保留 `draft` 仅表示它仍待正式批准，不再是“等待 Stage C 定版”的预备占位稿。
 
 ## Core Decision
 
@@ -71,6 +75,7 @@
 2. `--backend`、`--beads-dir`、`--bd-bin`、`--dolt-bin` 与 `BeadsCoordStore` 不再作为当前 runtime 支持面保留；其中 `--backend` 整体退役，而不是只删除 `beads/auto` 取值。
 3. 对 legacy 参数和旧调用路径，优先提供**明确、可操作的 fail-fast 错误**，而不是静默 fallback 或继续自动兼容。
 4. closeout 顺序明确固定为：
+   - `gate review`
    - `projection render`
    - `projection audit`
    - `gate close`
@@ -163,15 +168,17 @@ bd / beads
 
 `Stage D` 要把 closeout 流程从“依赖 beads 心智的历史串行动作”收敛为明确的 SQLite closeout checklist：
 
-1. `projection render`
-2. `projection audit`
-3. `gate close`
-4. `projection render`
-5. `projection audit`
-6. `milestone close`
+1. `gate review`
+2. `projection render`
+3. `projection audit`
+4. `gate close`
+5. `projection render`
+6. `projection audit`
+7. `milestone close`
 
 补充规则：
 
+- `gate review` 是 `gate close` 的显式前置条件；没有匹配的 `GATE_REVIEW_COMPLETE` 不允许关 gate
 - `gate close` 前仍必须满足 `audit.reconciled=true`
 - 第二轮 `projection render -> projection audit` 不是重复动作，而是为了反映 `gate close` 之后的最新控制面状态
 - `milestone close` 只依赖 SQLite store + 最新 projection，不依赖 beads sync
@@ -213,13 +220,18 @@ bd / beads
 
 - `coord.py` 不再暴露 `--backend`
 - `coord.py` 不再接受 `--beads-dir`、`--bd-bin`、`--dolt-bin`
-- `_resolve_paths()` 仅解析 shared repo root 下的 `.devcoord/control.db`
+- `_normalize_argv()` 中 `_ROOT_FLAGS_WITH_VALUE` 的退役参数跳过逻辑同步清理，不再继续为 `--backend`、`--beads-dir`、`--bd-bin`、`--dolt-bin` 保留特殊分支
+- `coord.py` 的 import 与 `__all__` 中不再暴露 `BeadsCoordStore`
+- `_resolve_paths()` 的目标签名收敛为无 `beads_dir_override` 参数的 SQLite-only 解析函数，只负责 shared repo root 与 `.devcoord/control.db`
+- `run_cli()` 不再访问 `args.beads_dir`，路径解析与 store 构造都基于 SQLite-only 输入
+- `_select_store()` 被删除或收敛为单一 SQLite path；不再保留 `backend == \"beads\"` 或 `auto fallback` 分支
 - `CoordPaths.beads_dir` 退役；路径模型只保留与 SQLite 控制面真实相关的字段
 - `CoordPaths` 的目标字段集收敛为：
   - `workspace_root`
   - `git_common_dir`
   - `control_root`
   - `control_db` / `lock_file` 继续通过 property 暴露
+- `control_root` 从 `Optional` 升级为必填 `Path`
 - `LEGACY_BEADS_SUBDIR` 与 legacy `.beads` fallback/guard 退役
 - `BeadsCoordStore` 从 runtime 中移除；若仓库内已无合法调用方，直接删除实现与相应 contract tests
 - 对旧参数/旧 backend 入口提供明确 fail-fast 提示：
@@ -252,6 +264,7 @@ bd / beads
 产出：
 
 - `milestone close` 的 help / error copy 改为 SQLite control-plane 语义
+  - 目标 help 文案默认改为 `Close all control-plane records for a completed milestone`
 - `close_milestone()` 的失败信息在以下场景下都明确可操作：
   - projection 未对齐
   - gate 未全部关闭
@@ -329,6 +342,7 @@ bd / beads
 
 - 一次性 cutover checklist，至少包含：
   - 确认无 active milestone 仍依赖 beads backend
+  - 执行前先验证当前安装的 `bd` CLI 仍支持计划中使用的参数组合（如 `bd list --all --include-infra --json`）；若版本差异存在，以当时可用参数为准更新执行说明
   - 列出历史 `coord` beads 对象，例如先执行：
     - `bd list --all --include-infra --json > /tmp/legacy-devcoord-beads.json`
     - 再按 `coord` label 或 `coord_kind` metadata 筛出历史 control-plane 对象
@@ -355,7 +369,11 @@ bd / beads
 
 - `coord.py --help` 不再暴露 beads backend / path 参数
 - legacy flags 触发明确错误
+- `_normalize_argv()` 不再为已退役 root flags 保留跳过逻辑
 - `_resolve_paths()` 不再依赖 `.beads` / `.coord/beads`
+- `_resolve_paths()` 不再接受 `beads_dir_override` 参数
+- `run_cli()` 不再引用 `args.beads_dir`
+- `_select_store()` 不再保留 beads / auto 分支，或已整体移除
 - 无 `bd` / `dolt` binary 时，SQLite runtime 仍能正常工作
 
 ### 1. SQLite Closeout Integration Tests
@@ -368,6 +386,7 @@ bd / beads
   - `open_gates` 非空
   - `pending_ack_messages` 非空
 - `render after close_milestone` 仍保持 projection 稳定
+- `gate close` 缺少匹配 `GATE_REVIEW_COMPLETE` 时明确 fail-closed
 
 ### 2. Dead Code and Vocabulary Sweep
 
@@ -376,12 +395,13 @@ bd / beads
 - 删除或替换 `BeadsCoordStore` 相关 runtime tests
 - 删除或替换 `CoordPaths.beads_dir` 相关断言
 - 测试名、断言文案、help snapshot 中不再把当前控制面称为 beads
+- `__all__`、import surface、常量名与测试断言中不再残留 `BeadsCoordStore` / `LEGACY_BEADS_SUBDIR`
 
 ### 3. Active Doc / Skill Verification
 
 自动化或半自动检查至少覆盖：
 
-- `rg -n "\\.beads|BEADS_DIR|--backend|--beads-dir|--bd-bin|--dolt-bin|beads-pull|beads-push"` 在 active governance docs / skills / devcoord runtime docs 中不再命中当前口径
+- `rg -n "\\.beads|BEADS_DIR|--backend|--beads-dir|--bd-bin|--dolt-bin|beads-pull|beads-push|LEGACY_BEADS_SUBDIR|BeadsCoordStore"` 在 active governance docs / skills / devcoord runtime docs 中不再命中当前口径
 - `rg` 命中若仍存在，只允许出现在：
   - 历史 review / plan / archive note
   - superseded 说明中的历史上下文
@@ -415,7 +435,7 @@ bd / beads
 | R3 | 为了改口径而批量改写历史文档 | 破坏历史证据真实性 | 中 | 仅改 active docs / skills / README；旧 review/plan 文档保持原样 |
 | R4 | closeout guard/错误提示改动引入行为回归 | gate/milestone 收口失败或误放行 | 中 | 以现有 fail-closed 语义为边界，只增强文案与 smoke coverage，不放宽 guard |
 | R5 | dead-code cleanup 不彻底 | beads 术语或 runtime 依赖残留，继续放大熵增 | 中 | 做 grep-driven sweep，并把测试名/帮助文案/skills 一并检查 |
-| R6 | Stage C 命令面仍在变化时，Stage D 提前切文档 | 文档与 CLI 真实 surface 再次漂移 | 中 | 以 Stage C merged/approved 为 Stage D 必备前置条件；若 Stage C 命令集变动，先回改本 draft 再审批 Stage D |
+| R6 | Stage D 的 runtime cleanup 误伤已验收的 Stage C canonical CLI surface | 文档、help 与实现再次漂移 | 中 | 以已验收的 Stage C grouped CLI 为固定基线；D1 若触及 parser/help surface，必须同时跑 CLI smoke 与文档对账 |
 | R7 | `CLAUDE.md` / `AGENTS.md` 改口径后，已加载旧上下文的 agent session 继续按旧 beads sync 规则操作 | 过渡期出现多余操作或错误心智 | 低 | 作为 transient 风险接受；新 session 默认拾取新规则，旧 session 在切换前应补看最新治理文档 |
 
 ## Acceptance Criteria
@@ -431,6 +451,7 @@ bd / beads
 - [ ] `beads_control_plane.md` 已被 supersede 或 archive note 清楚接管
 - [ ] `bd list --status open` 不再被 live devcoord 对象污染
 - [ ] 历史 beads control-plane 数据未导入 SQLite，历史证据文档未被错误重写
+- [ ] 全量测试通过，且无 beads-related regression failure
 
 ## Resolved Positions
 
@@ -447,4 +468,4 @@ bd / beads
 - 历史 `coord` beads cleanup 优先采用一次性 checklist，而不是新增长期 runtime 子命令
   - 理由：这是一次性 cutover 事务，不值得为此永久扩张 `coord.py`
 - `Stage D` 文档口径默认承接 `Stage C` grouped CLI
-  - 理由：当前阶段的 active docs 不应再继续扩散 flat/beads-era 命令心智；若 `Stage C` 最终 canonical path 与本 draft 假设不同，必须先回改本 draft 再审批执行
+  - 理由：当前阶段的 active docs 不应再继续扩散 flat/beads-era 命令心智；若 `Stage D` runtime cleanup 触发任何 grouped CLI surface 变化，应视为对已验收 `Stage C` 基线的回归并同步修订文档与测试
