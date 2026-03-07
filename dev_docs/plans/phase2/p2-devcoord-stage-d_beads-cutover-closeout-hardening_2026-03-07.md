@@ -1,7 +1,7 @@
-# P2-Devcoord Stage D 实施计划 Draft：Beads Cutover and Closeout Hardening
+# P2-Devcoord Stage D 实施计划：Beads Cutover and Closeout Hardening
 
 - Date: 2026-03-07
-- Status: draft
+- Status: approved
 - Scope: `P2-Devcoord Stage D` only; complete the hard cutover from beads-backed devcoord compatibility to a SQLite-only control plane, harden milestone closeout, and retire active `.beads` control-plane guidance
 - Track Type: parallel development-process repair track; outside the `P2-M*` product milestone series
 - Basis:
