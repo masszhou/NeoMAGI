@@ -360,9 +360,9 @@
 - Risk: 无
 
 ## 2026-03-07 (local) | P2-Devcoord Stage B
-- Status: in_progress (plan review)
-- Done: Devcoord Stage B（SQLite 后端与 Render/Audit 切换）草稿已建立，进入开工前审阅
+- Status: in_progress (plan approved, implementation pending)
+- Done: Devcoord Stage B（SQLite 后端与 Render/Audit 切换）计划已批准，等待进入实现
 - Track: 并行开发流程修复轨；不属于 `P2-M*` 产品里程碑序列
-- Evidence: `dev_docs/plans/phase2/p2-devcoord-stage-b_sqlite-backend_2026-03-07_draft.md`
-- Next: 收敛 Stage B 审阅意见并批准正稿，然后进入实现
+- Evidence: `dev_docs/plans/phase2/p2-devcoord-stage-b_sqlite-backend_2026-03-07.md`
+- Next: 按批准的 `Stage B` 计划进入实现
 - Risk: Stage B 涉及 SQLite schema、shared-root 路径、service 读写 helper 改造与 render/audit 切换，回归面明显高于 Stage A

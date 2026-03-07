@@ -1,7 +1,7 @@
-# P2-Devcoord Stage B 实施计划（草稿）：SQLite 后端与 Render/Audit 切换
+# P2-Devcoord Stage B 实施计划：SQLite 后端与 Render/Audit 切换
 
 - Date: 2026-03-07
-- Status: draft
+- Status: approved
 - Scope: `P2-Devcoord Stage B` only; implement `SQLiteCoordStore`, bootstrap `.devcoord/control.db`, and make `render/audit` run against SQLite
 - Track Type: parallel development-process repair track; outside the `P2-M*` product milestone series
 - Basis:
