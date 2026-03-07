@@ -204,6 +204,10 @@ class SkillEvidence(BaseModel):
 - `known_breakages`
   - 已知失效条件。
 
+`SkillEvidence` 在 V1 中保持 frozen。  
+更新时通过创建新实例替换旧实例（如 `model_copy(update=...)`），而不是原地修改；  
+旧实例可直接作为 diff / audit 对照物。
+
 V1 不把 `confidence` 作为持久化字段。  
 如需运行时排序分数，可由 `success_count / (success_count + failure_count + 1)`  
 或等价规则临时推导，避免出现“字段存在但无人维护”的双写漂移。
@@ -244,6 +248,19 @@ class ResolvedSkillView(BaseModel):
 
 `TaskFrame` 不是计划，不是 procedure，只是 skill resolution 的稳定输入。
 
+```python
+class TaskFrame(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    task_type: str | None = None
+    target_outcome: str | None = None
+    risk: str | None = None
+    channel: str | None = None
+    current_mode: str
+    current_procedure: str | None = None
+    available_tools: tuple[str, ...] = ()
+```
+
 V1 约束：
 - `TaskFrame` 由 `AgentLoop` 在单次 turn 内生成，不单独持久化。
 - 生成时机：收到用户消息后、完成 mode / scope / tool registry / active procedure 解析后、进入 `PromptBuilder.build()` 前。
@@ -255,7 +272,31 @@ V1 约束：
   - 当前可见工具集合；
   - 最近少量对话与已解析出的结构化上下文。
 
-### 7.2 SkillResolver
+### 7.2 SkillRegistry / SkillStore
+
+V1 需要一个极小的数据源契约，供 `SkillResolver` 读取当前可用 skill；  
+不要求固定 preload 还是按需查库，但要求 `SkillResolver` 依赖抽象接口，而不是直接耦合底层存储。
+
+```python
+from typing import Protocol
+
+
+class SkillRegistry(Protocol):
+    async def list_active(self) -> list[SkillSpec]: ...
+
+    async def get_evidence(
+        self,
+        skill_ids: tuple[str, ...],
+    ) -> dict[str, SkillEvidence]: ...
+```
+
+V1 约束：
+- backing store 可以是 PostgreSQL + cache，或等价实现，但对 `SkillResolver` 暴露统一 registry/store 接口。
+- `list_active()` 只返回当前可参与 resolution 的 skill；禁用、撤回、或不兼容版本的 skill 不应出现在结果中。
+- `get_evidence()` 只负责按 `skill_id` 取当前 evidence 快照；如何 join、cache、预热属于实现细节。
+- 是否启动时全量加载，还是 turn 内按需读取，是实现选择；文档只固定 resolver 的消费契约。
+
+### 7.3 SkillResolver
 
 职责：
 - 在意图解析后检索候选 skill；
@@ -272,7 +313,7 @@ V1 约束：
   - delta 更短、更局部的 skill
 - V1 不要求 embedding；是否引入向量召回留到后续版本。
 
-### 7.3 SkillProjector
+### 7.4 SkillProjector
 
 职责：
 - 将候选 skill 投影为 `ResolvedSkillView`；
@@ -289,7 +330,7 @@ V1 约束：
   - 仅保留与当前 `TaskFrame` 直接相关的 escalation / breakage 摘要
 - 若当前 context、memory recall 或 active procedure 已明确否定某个 skill 的前提，应直接丢弃其 `llm_delta`，并将其视为 stale candidate，而不是强行注入 prompt。
 
-### 7.4 SkillLearner
+### 7.5 SkillLearner
 
 职责：
 - 在运行后记录哪些经验有效、哪些失效；
@@ -308,6 +349,37 @@ V1 学习边界：
   - 用户显式确认结果可复用；
   - 同一 skill 在受控场景下重复成功，且成功边界可结构化判断。
 - `SkillLearner` 只能提出 `patch / promote / disable` 建议，不直接 apply 治理对象变更。
+- 这是有意的保守策略：V1 宁可少学正经验，也不让 skill layer 因误学而膨胀。
+- 因此 V1 evidence 的主要价值更偏向：
+  - breakage 检测
+  - stale skill 识别
+  - patch / disable / promote 候选生成
+  而不是快速自动累积大量正经验。
+
+### 7.6 Skill Creation Path
+
+V1 需要一个明确的从 0 到 1 创建路径，但不允许静默直接生效。
+
+最小创建入口：
+- 用户显式教授，例如“记住这个方法”“以后这类任务按这个做”；
+- `post-run-learning` 中检测到高置信的可复用 delta，并形成结构化提案草稿。
+
+最小创建流程：
+1. `SkillLearner` 或用户教学入口生成候选 `SkillSpec + SkillEvidence` 草稿；
+2. 形成 `GrowthProposal` 或等价 proposal record，附带：
+   - summary
+   - activation / activation_tags
+   - delta
+   - 初始 evidence
+   - 来源与证据引用
+3. 进入治理路径，再决定是否 apply 为 active skill。
+
+治理边界：
+- 创建新 skill 本身属于治理动作，不应绕过 proposal / eval / apply。
+- 若 `skill_spec` kind 尚未 onboard，V1 允许只生成 proposal / draft，不要求自动 apply。
+- 第一次任务后“应生成可命名、可复用、可回滚的 skill object”的最小含义是：
+  - 至少生成可审计的 skill proposal / draft
+  - 而不是把经验只留在一次性对话文本里
 
 ## 8. 固定 runtime join points
 
@@ -355,6 +427,8 @@ join point 越多，系统越容易重新走向高熵的事件回调网络。
   - `AGENTS.md` 的行为契约
   - `USER.md` 的用户偏好
   - 当前 turn 已经确定的 procedure / approval 硬边界
+- skill delta 只应包含任务经验、工具偏好、失败信号与升级条件；
+  不应包含语气、人格、身份展示层面的指导。
 - 若 recalled memory、当前上下文事实或 active procedure 明确与某个 skill 冲突，应优先降级 / 丢弃该 skill 投影，而不是让 prompt 内部自行“投票解决”。
 
 ### 9.2 Procedure Runtime
