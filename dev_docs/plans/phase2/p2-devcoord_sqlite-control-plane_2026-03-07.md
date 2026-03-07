@@ -6,7 +6,7 @@
 - Track Type: parallel development-process repair track; outside the `P2-M*` product milestone series
 - Basis:
   - [`decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md)
-  - [`design_docs/devcoord_sqlite_control_plane_draft.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/devcoord_sqlite_control_plane_draft.md)
+  - [`design_docs/devcoord_sqlite_control_plane.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/devcoord_sqlite_control_plane.md)
   - [`decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md)
   - [`decisions/0043-devcoord-direct-script-entrypoint-instead-of-just-wrapper.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0043-devcoord-direct-script-entrypoint-instead-of-just-wrapper.md)
   - [`AGENTTEAMS.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/AGENTTEAMS.md)
@@ -61,7 +61,7 @@
 
 前置条件：
 
-- 对应 [`design_docs/devcoord_sqlite_control_plane_draft.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/devcoord_sqlite_control_plane_draft.md) 的 `Stage 0`，ADR 0050 必须先从 `proposed` 进入 `accepted`，再启动本计划的实施阶段。
+- 对应 [`design_docs/devcoord_sqlite_control_plane.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/devcoord_sqlite_control_plane.md) 的 `Stage 0`，ADR 0050 必须先从 `proposed` 进入 `accepted`，再启动本计划的实施阶段。
 
 ## Goals
 

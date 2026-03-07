@@ -25,7 +25,7 @@
 - 保持 `AGENTTEAMS.md` 中的 Gate / ACK / recovery / audit / closeout 协议边界不变；本 ADR 只替换 control-plane backend，不降级治理强度。
 - 不迁移既有 `beads` control-plane 历史数据到 SQLite；cutover 时直接从空的 `.devcoord/control.db` 启动，历史 `coord` 记录仅做关闭/归档。
 - 协议语义保持稳定，但 `coord.py` 的人类可见命令面应收敛为更少的分组命令，`apply` 保留为 machine-first 入口。
-- 对应技术草案见 `design_docs/devcoord_sqlite_control_plane_draft.md`。
+- 对应技术设计见 `design_docs/devcoord_sqlite_control_plane.md`。
 - SQLite 仅用于内部开发协作控制面，不进入产品运行时数据面；产品运行时数据库仍保持 PostgreSQL 17 基线。
 
 ## 为什么
