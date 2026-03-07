@@ -56,7 +56,8 @@ NeoMAGI 已经明确两件事：
 - 不把 skill object 变成新的 workflow engine。
 - 不要求所有任务都必须命中 skill object。
 - 不让 skill object 直接执行副作用。
-- 不在本阶段规定唯一持久化后端。
+- 不在本阶段规定唯一表结构、registry layout 或物理存储布局。
+- 不引入 SQLite；最终持久化仍遵循项目 PostgreSQL 17 基线。
 
 ## 4. 设计原则
 
@@ -129,18 +130,24 @@ NeoMAGI 不需要传统 hook 机制作为本体；它只需要少量固定 runti
 `SkillSpec` 是可交换、可插拔的最小封装单元，偏静态。
 
 ```python
-@dataclass(frozen=True)
-class SkillSpec:
+from pydantic import BaseModel, ConfigDict
+
+
+class SkillSpec(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     id: str
     capability: str
     version: int
     summary: str
     activation: str
+    activation_tags: tuple[str, ...] = ()
     preconditions: tuple[str, ...] = ()
     delta: tuple[str, ...] = ()
     tool_preferences: tuple[str, ...] = ()
     escalation_rules: tuple[str, ...] = ()
     exchange_policy: str = "local_only"
+    disabled: bool = False
 ```
 
 字段语义：
@@ -153,7 +160,10 @@ class SkillSpec:
 - `summary`
   - 一句话说明 skill 做什么。
 - `activation`
-  - 何时应考虑激活。
+  - 面向人类与审计的一句话激活说明。
+- `activation_tags`
+  - V1 的轻量结构化匹配提示，如 `reddit` / `research` / `drafting` / `approval_required`。
+  - V1 默认先靠规则与 tag 过滤，不要求引入 embedding。
 - `preconditions`
   - 前提条件；不满足时应跳过或升级。
 - `delta`
@@ -164,14 +174,17 @@ class SkillSpec:
   - 何时必须升级到 procedure / approval。
 - `exchange_policy`
   - 是否允许导出、共享、导入覆盖。
+- `disabled`
+  - 本地禁用开关；被禁用的 skill 不参与 resolution / projection。
 
 ### 6.2 SkillEvidence
 
 `SkillEvidence` 是运行时可学习部分，偏动态。
 
 ```python
-@dataclass
-class SkillEvidence:
+class SkillEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     source: str
     success_count: int = 0
     failure_count: int = 0
@@ -179,7 +192,6 @@ class SkillEvidence:
     positive_patterns: tuple[str, ...] = ()
     negative_patterns: tuple[str, ...] = ()
     known_breakages: tuple[str, ...] = ()
-    confidence: float = 0.0
 ```
 
 字段语义：
@@ -191,26 +203,29 @@ class SkillEvidence:
   - 被验证过应避免的经验。
 - `known_breakages`
   - 已知失效条件。
-- `confidence`
-  - 不是事实真值，而是当前复用置信度。
+
+V1 不把 `confidence` 作为持久化字段。  
+如需运行时排序分数，可由 `success_count / (success_count + failure_count + 1)`  
+或等价规则临时推导，避免出现“字段存在但无人维护”的双写漂移。
 
 ### 6.3 ResolvedSkillView
 
 `ResolvedSkillView` 是 turn-local 投影，不持久化。
 
 ```python
-@dataclass(frozen=True)
-class ResolvedSkillView:
+class ResolvedSkillView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     llm_delta: tuple[str, ...]
-    runtime_hints: tuple[str, ...]
-    escalation_signals: tuple[str, ...]
+    runtime_hints: tuple[str, ...] = ()
+    escalation_signals: tuple[str, ...] = ()
 ```
 
 设计意图：
 - `llm_delta`
   - 给 prompt builder 的最小经验摘要。
 - `runtime_hints`
-  - 给 planner / executor / procedure 的结构化提示。
+  - V1 只给 `AgentLoop` 的 `pre-procedure` 判断消费，不假设存在独立 planner 模块。
 - `escalation_signals`
   - 用于触发 approval、procedure 或人工确认。
 
@@ -229,12 +244,33 @@ class ResolvedSkillView:
 
 `TaskFrame` 不是计划，不是 procedure，只是 skill resolution 的稳定输入。
 
+V1 约束：
+- `TaskFrame` 由 `AgentLoop` 在单次 turn 内生成，不单独持久化。
+- 生成时机：收到用户消息后、完成 mode / scope / tool registry / active procedure 解析后、进入 `PromptBuilder.build()` 前。
+- 生成方式：V1 仅使用规则抽取，不新增额外 LLM 调用。
+- 输入来源限于：
+  - 当前用户消息；
+  - 当前 session mode / scope；
+  - 当前 active procedure（若存在）；
+  - 当前可见工具集合；
+  - 最近少量对话与已解析出的结构化上下文。
+
 ### 7.2 SkillResolver
 
 职责：
 - 在意图解析后检索候选 skill；
 - 默认只返回少量候选（建议 top 1~3）；
 - 宁缺毋滥，避免 skill 污染上下文。
+
+V1 约束：
+- 先过滤 `disabled=True` 的 skill。
+- 先做 `activation_tags + capability + preconditions` 的规则级过滤，再做轻量排序。
+- 当前 turn 命中多个 skill 时允许同时激活，但默认只保留 top 1~3。
+- 若多个 skill 彼此冲突，优先级按：
+  - 当前 procedure / approval 相关 skill
+  - evidence 更新更近、已知 breakage 更少的 skill
+  - delta 更短、更局部的 skill
+- V1 不要求 embedding；是否引入向量召回留到后续版本。
 
 ### 7.3 SkillProjector
 
@@ -245,6 +281,14 @@ class ResolvedSkillView:
   - `Runtime View`
 - 只注入 delta，不注入全量 SOP。
 
+V1 约束：
+- `SkillProjector` 必须执行上下文预算裁剪，避免 skill 重新退化为 prompt 污染层。
+- 建议默认上限：
+  - 候选 skill 总数：1~3
+  - 每个 skill 注入的 `llm_delta`：最多 2~3 条
+  - 仅保留与当前 `TaskFrame` 直接相关的 escalation / breakage 摘要
+- 若当前 context、memory recall 或 active procedure 已明确否定某个 skill 的前提，应直接丢弃其 `llm_delta`，并将其视为 stale candidate，而不是强行注入 prompt。
+
 ### 7.4 SkillLearner
 
 职责：
@@ -252,6 +296,18 @@ class ResolvedSkillView:
 - 更新 evidence；
 - 必要时提出 patch / promote / disable 建议；
 - 不默认静默改写高层治理对象。
+
+V1 学习边界：
+- 更新频率按 task 结束触发，而不是每次 tool call 后都更新。
+- 自动写入的负经验只来自 deterministic 信号，例如：
+  - precondition / guard deny
+  - tool 返回结构化失败
+  - active procedure / approval gate 明确拒绝
+  - 页面结构异常、登录态异常等可机器判定 breakage
+- 正经验不因“用户没纠正”而自动成立；V1 只在以下场景写入正经验：
+  - 用户显式确认结果可复用；
+  - 同一 skill 在受控场景下重复成功，且成功边界可结构化判断。
+- `SkillLearner` 只能提出 `patch / promote / disable` 建议，不直接 apply 治理对象变更。
 
 ## 8. 固定 runtime join points
 
@@ -269,6 +325,18 @@ V1 只建议保留 3 个固定 join points：
 不建议在 V1 引入大量细碎 hook 点。  
 join point 越多，系统越容易重新走向高熵的事件回调网络。
 
+与当前 `AgentLoop` 的最小集成草案：
+- `pre-plan`
+  - 在 `AgentLoop.handle_message()` 中，完成 mode / tool schema / active procedure 解析后、调用 `PromptBuilder.build()` 前触发。
+  - 产物：`TaskFrame` + `ResolvedSkillView`。
+- `pre-procedure`
+  - 在任务尝试进入 procedure / approval 路径前触发。
+  - 消费：`ResolvedSkillView.runtime_hints` 与 `escalation_signals`。
+  - 若当前任务未涉及 procedure / approval，该 join point 允许为空操作。
+- `post-run-learning`
+  - 在一次 task 形成终态后触发：终态可以是最终 assistant 回复、结构化失败、或 procedure terminal outcome。
+  - 对多 tool 的单个 task，只产生一次 task-level learning event。
+
 ## 9. 与现有模块的关系
 
 ### 9.1 PromptBuilder
@@ -278,6 +346,16 @@ join point 越多，系统越容易重新走向高熵的事件回调网络。
 - `PromptBuilder` 只消费 `ResolvedSkillView.llm_delta`；
 - 不自己负责解析 skill；
 - 不读取 skill 本体存储。
+- `llm_delta` 作为独立 `Skills layer` 注入，层位固定为：
+  - `Safety` 之后
+  - `Workspace context` 之前
+- 语义优先级固定为：
+  - `Safety > AGENTS.md > USER.md > skill delta > SOUL.md > IDENTITY.md`
+- skill delta 只能提供经验偏置，不能覆盖：
+  - `AGENTS.md` 的行为契约
+  - `USER.md` 的用户偏好
+  - 当前 turn 已经确定的 procedure / approval 硬边界
+- 若 recalled memory、当前上下文事实或 active procedure 明确与某个 skill 冲突，应优先降级 / 丢弃该 skill 投影，而不是让 prompt 内部自行“投票解决”。
 
 ### 9.2 Procedure Runtime
 
@@ -317,6 +395,11 @@ promote 目标可以是：
 - 更稳定的 atomic tool；
 - 更明确的 procedure entry。
 
+promote 在治理上不是 skill 自己直接生效，而是 `GrowthProposal`：
+- 向下 promote 为 wrapper tool / atomic tool / procedure entry 时，应进入 `GrowthGovernanceEngine` 的 `propose -> eval -> apply` 路径。
+- 跨 kind promote 受 `GrowthKindPolicy / PromotionPolicy` 约束，而不是由 `SkillLearner` 直接写入。
+- 若目标 kind 尚未 onboard，仅允许生成 proposal / recommendation，不直接 apply。
+
 ### 10.3 什么时候 demote / disable
 
 当出现以下信号时，应考虑降级或禁用 skill：
@@ -324,6 +407,10 @@ promote 目标可以是：
 - 负经验显著多于正经验；
 - 关键前提已不再成立；
 - 新的底层 tool / procedure 已覆盖其主要价值。
+
+demote / disable 同样属于治理动作：
+- 可以由 `SkillLearner` 或评测管线提出。
+- 是否生效由治理层决定；高风险 disable 不应静默越过审计面。
 
 ## 11. Actionbook / Reddit 示例
 
@@ -346,8 +433,9 @@ promote 目标可以是：
   - activation: 用户需要基于采集结果准备草稿
   - delta: 先生成草稿，不直接提交
 - `reddit_submit_with_approval`
-  - activation: 用户明确批准发布
+  - activation: 已命中发布 approval / procedure entry，且用户明确批准发布
   - delta: 提交前再次检查 subreddit 规则、账号状态与内容一致性
+  - escalation_rules: 若 approval gate 未打开，只提出进入 procedure / approval 的建议，不直接提交
 
 ### 11.3 关键验收点
 
@@ -360,8 +448,11 @@ promote 目标可以是：
 
 ## 12. 当前未决问题
 
-- `SkillSpec` 与 `SkillEvidence` 的最终持久化位置是否分离。
+- `SkillSpec` 与 `SkillEvidence` 的最终 PostgreSQL 表结构是否分离，还是共用 registry / store。
 - skill 导入时如何处理本地覆盖与冲突。
-- `SkillResolver` 的匹配分数模型是否只靠规则，还是允许引入向量 / embedding 辅助。
+- V2 是否需要在规则匹配之外引入向量 / embedding 辅助召回。
 - 什么时候允许自动 patch skill，什么时候必须走 proposal / eval。
 - `beads` 是否承担 skill evidence 的部分结构化记录职责。
+- 多个 capability / skill 同时命中时，是否需要更明确的冲突仲裁策略。
+- skill delta 的全局 token budget 是否需要独立于 memory recall 单独配额。
+- skill evidence 与 memory 系统中的经验条目如何去重与分层，避免同一条经验同时沉淀到两个平面。
