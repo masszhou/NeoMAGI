@@ -168,8 +168,9 @@ PRIMARY KEY (milestone_id, gate_id)
 
 说明：
 
-- `gate_state` 是权威聚合状态：`pending`、`effective`、`closed`
+- `gate_state` 是权威聚合状态：`pending`、`open`、`closed`
 - `report_path` 和 `report_commit` 继续保留为关 gate 时的证据字段
+- 这里沿用当前 runtime 的 gate 聚合状态口径；`effective` 保留给 message / command 的 ACK 生效语义，不在 gate 状态上复用
 
 ### 6.4 `roles`
 
@@ -196,6 +197,8 @@ PRIMARY KEY (milestone_id, role)
 
 - 这一层替代原来的 agent bead 状态
 - 主要服务 watchdog 和 projection 输出
+- SQLite `roles` 表承接当前 service 层 `kind="agent"` 的语义
+- 本阶段不要求同步把 service 侧既有 `agent` 概念全部重命名为 `role`
 
 ### 6.5 `messages`
 
@@ -482,6 +485,9 @@ coord.py apply ...
 约束：
 
 - 这不是“只换一个 adapter 就结束”的工作
+- 默认应先实现 `Stage A` 已批准的 `CoordStore` seam
+- 只有当 SQLite typed schema 证明现有 seam 不足时，才允许做窄幅、增量式 protocol 演化
+- 一旦发生该类演化，`MemoryCoordStore` 与 `BeadsCoordStore` 必须在同一实现切片内同步适配
 - `Stage B` 允许为适配 typed SQLite schema 改造 service 读写路径
 - 但不要求一次性把整个 runtime 重写成一套新的 typed domain object 系统
 
@@ -507,6 +513,11 @@ coord.py apply ...
 - 新 store 必须支持 fresh bootstrap，不依赖旧 `beads` control-plane 数据导入
 - `CoordPaths` 在这一阶段新增 `control_root` / `control_db` 一类语义字段
 - `beads_dir` 可暂时保留为兼容字段，但不再作为 SQLite 路径真源
+- `_locked()` 的文件锁语义保持不变，但路径准备逻辑必须切到 `control_root` / `lock_file.parent`
+- `_resolve_paths()` 中现有 legacy beads 检测逻辑必须重新审查，避免误伤 SQLite-only 路径
+- runtime selection 采用最小接线：
+  - 默认根据 `.devcoord/control.db` 是否存在自动选择 SQLite
+  - `--backend` 作为显式 override
 
 ### Stage 3: Command regrouping
 

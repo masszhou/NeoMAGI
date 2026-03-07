@@ -57,6 +57,13 @@
    - SQLite 路径不再镜像写 `beads`
 6. `BeadsCoordStore` 在 `Stage B` 仍保留为兼容/回退适配器，但不再是目标架构。
 7. `_locked()` 文件锁机制保持不变。
+8. gate 聚合状态沿用当前 runtime 口径：
+   - `pending / open / closed`
+   - 不在 `Stage B` 把现有 `open` 改名为 `effective`
+9. `Stage B` 默认从 `Stage A` 已批准的 `CoordStore` seam 起步：
+   - 优先实现现有 `CoordStore` protocol
+   - 只有当 SQLite query/write 模型证明现有 seam 不足时，才允许做窄幅、增量式 protocol 演化
+   - 一旦发生该类演化，`MemoryCoordStore` 与 `BeadsCoordStore` 必须在同一实现切片内同步适配
 
 这意味着 `Stage B` 要交付的是“SQLite 路径可完整运行”，不是“所有旧路径和旧文档都清理完”。
 
@@ -125,6 +132,9 @@
 
 - `SQLiteCoordStore` 不向 `beads` 写 mirror 数据
 - `CoordService` 不关心底层是 SQLite 还是 beads
+- `Stage B` 默认先实现现有 `CoordStore` seam，而不是立即重写成全 typed protocol
+- 若必须为 SQLite typed schema 增加窄接口，应优先采用增量扩展而不是推翻 `Stage A` 已批准的契约
+- 若发生 seam 演化，`MemoryCoordStore` 与 `BeadsCoordStore` 必须在同一实现切片内同步跟进
 
 ### 2. SQLite Schema
 
@@ -144,9 +154,12 @@
 - `events`
   - append-only
 - `gates`
-  - `pending / effective / closed`
+  - `pending / open / closed`
 - `target_commit`
   - 必须作为一等字段存在，不得只藏在弱类型 payload 里
+- `roles`
+  - SQLite `roles` 表承接当前 service 层 `kind="agent"` 的语义
+  - `Stage B` 不要求同步重命名 service 侧现有 `agent` 概念
 
 `schema_version` 的决议在本阶段固定为：
 
@@ -184,6 +197,8 @@ Stage B 必须固定共享路径解析：
 - `CoordPaths` 命名从 `beads_dir` 向 `control_root` / `control_db` 一类语义迁移
 - `.devcoord/` 加入 `.gitignore`
 - `beads_dir` 在 `Stage B` 期间可暂时保留为兼容字段，但不再作为 SQLite 路径真源
+- `_resolve_paths()` 中现有 legacy beads 检测逻辑必须重新审查
+  - 不得让 SQLite-only 路径被旧 `.beads` / `.coord/beads` 保护逻辑误伤
 
 ### 5. Concurrency and Transactions
 
@@ -199,6 +214,9 @@ Stage B 必须固定共享路径解析：
 
 - 文件锁仍是外层串行保护
 - SQLite 事务是内层一致性保护
+- “锁机制不变”只指文件锁语义不变，不指路径准备逻辑不变
+- `_locked()` 中的目录准备应迁移到 `control_root` 或 `lock_file.parent`
+- 不应继续因为文件锁初始化而创建或依赖 `beads_dir`
 
 ### 6. Render / Audit Cutover
 
@@ -240,6 +258,10 @@ Stage B 必须固定共享路径解析：
 本计划倾向：
 
 - 允许最小 backend wiring，让 `coord.py` 可以运行在 SQLite 后端上
+- 默认根据 `.devcoord/control.db` 是否存在自动选择 SQLite
+- 保留 `--backend` 作为显式 override：
+  - `sqlite` 强制走 `SQLiteCoordStore`
+  - `beads` 强制走 `BeadsCoordStore`
 - 不新增大规模命令树
 - 不在本阶段设计长期多后端切换产品面
 
@@ -281,6 +303,7 @@ Stage B 必须固定共享路径解析：
 - `scripts/devcoord/model.py`
 - `scripts/devcoord/sqlite_store.py`（新）
 - `scripts/devcoord/coord.py`
+- `scripts/devcoord/service.py`
 - `.gitignore`
 
 产出：
@@ -290,12 +313,15 @@ Stage B 必须固定共享路径解析：
 - SQLite metadata / schema version
 - 空库可初始化
 - schema version mismatch fail-closed
+- `_locked()` 路径准备改为 `control_root` / `lock_file.parent`
+- `_resolve_paths()` 的 legacy beads 检测逻辑经过审查并与 SQLite-only 路径对齐
 
 验收：
 
 - 新仓库或空 `.devcoord/` 可自动 bootstrap
 - `.devcoord/control.db` 不进 Git
 - 多 worktree 指向同一 shared root
+- SQLite-only 路径不会因 legacy beads 检测而误失败
 
 ### Slice B2: SQLite Runtime Write/Read Path
 
@@ -320,12 +346,17 @@ Stage B 必须固定共享路径解析：
 - service 层必要的 query/write helper 改造
   - 允许从 metadata bag 风格访问转向 store query helpers
   - 不要求引入完整 typed records 公共模型
+- runtime selection 最小接线
+  - `.devcoord/control.db` 存在时默认走 SQLite
+  - `--backend` 可显式 override
+- gate 聚合状态继续使用 `pending / open / closed`
 
 验收：
 
 - `init -> open_gate -> ack -> phase_complete -> gate_review -> gate_close -> close_milestone` 成立
 - 所有需 ACK 指令 `STOP / WAIT / RESUME / GATE_OPEN / PING` 的 `pending -> effective` 语义成立
 - 不写 `beads` control-plane 数据
+- 若 `CoordStore` protocol 在本切片发生窄幅演化，`MemoryCoordStore` 与 `BeadsCoordStore` 必须在同一切片内同步适配
 
 ### Slice B3: Render/Audit Cutover and Integration Validation
 
@@ -362,6 +393,11 @@ Stage B 必须固定共享路径解析：
 ## Test Strategy
 
 `Stage B` 必须新增真实 SQLite 测试，不再只靠内存 store 回归。
+
+同时保留一条明确基线：
+
+- 现有 `MemoryCoordStore` 驱动的测试继续作为 service 层行为回归基线
+- 新增 SQLite 测试是增量补充，不替代这条基线
 
 建议测试面：
 
