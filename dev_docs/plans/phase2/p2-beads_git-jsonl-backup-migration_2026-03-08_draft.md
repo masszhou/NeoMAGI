@@ -6,15 +6,17 @@
 - Track Type: parallel governance / developer-workflow repair track; outside the `P2-M*` product milestone series
 - Driver: 现有 `dolt push` / `dolt pull` 在 Git remote 路径上不稳定，而项目真实需要的是“可恢复备份”，不是 Dolt 远端历史语义
 - Basis:
-  - [`decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md)
-  - [`decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md)
-  - [`decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md)
-  - [`AGENTS.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/AGENTS.md)
-  - [`CLAUDE.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/CLAUDE.md)
-  - [`justfile`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/justfile)
-  - [`.beads/.gitignore`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/.gitignore)
-  - [`.beads/config.yaml`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/config.yaml)
-  - [`.beads/README.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/README.md)
+  - [`decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md`](../../../decisions/0042-devcoord-control-plane-beads-ssot-with-dev-docs-projection.md)
+  - [`decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md`](../../../decisions/0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store.md)
+  - [`decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md`](../../../decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md)
+  - [`AGENTS.md`](../../../AGENTS.md)
+  - [`CLAUDE.md`](../../../CLAUDE.md)
+  - [`justfile`](../../../justfile)
+  - [`.beads/.gitignore`](../../../.beads/.gitignore)
+  - [`.beads/config.yaml`](../../../.beads/config.yaml)
+  - [`.beads/README.md`](../../../.beads/README.md)
+- Approval Coupling:
+  - 本计划一旦批准，视为同时批准 ADR 0052；实施首轮需把 `decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md` 从 `proposed` 改为 `accepted`，并同步更新 `decisions/INDEX.md`。
 
 ## Context
 
@@ -27,8 +29,8 @@
   - 文档要求在 session closeout 时执行 `just beads-pull` / `just beads-push`。
   - 实际运行中，`dolt pull` / `dolt push` 对 Git remote 路径不稳定，已经不适合作为强制 closeout 步骤。
 - 仓库事实层面：
-  - [`.beads/dolt/`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/dolt) 被忽略，不是 Git 跟踪对象。
-  - [`.beads/backup/`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/backup) 下的 JSONL 备份已经是 Git 跟踪对象，并且 `bd backup restore` 已支持恢复。
+  - [`.beads/dolt/`](../../../.beads/dolt) 被忽略，不是 Git 跟踪对象。
+  - [`.beads/backup/`](../../../.beads/backup) 下的 JSONL 备份已经是 Git 跟踪对象，并且 `bd backup restore` 已支持恢复。
 
 这意味着当前系统已经自然分化出两层：
 
@@ -66,17 +68,21 @@
 
 ### 1. Closeout 规则仍依赖 Dolt remote
 
-- [`AGENTS.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/AGENTS.md) 与 [`CLAUDE.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/CLAUDE.md) 仍要求在改动了 beads 数据时执行 `just beads-pull` / `just beads-push`。
-- [`justfile`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/justfile) 的 `beads-pull` / `beads-push` 直接调用 `dolt pull origin main` / `dolt push origin main`。
+- [`AGENTS.md`](../../../AGENTS.md) 与 [`CLAUDE.md`](../../../CLAUDE.md) 仍要求在改动了 beads 数据时执行 `just beads-pull` / `just beads-push`。
+- [`justfile`](../../../justfile) 的 `beads-pull` / `beads-push` 直接调用 `dolt pull origin main` / `dolt push origin main`。
 
 ### 2. Git 实际跟踪的是 JSONL 备份，而不是 Dolt 内部库
 
-- [`.beads/.gitignore`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/.gitignore) 忽略 `dolt/`。
+- [`.beads/.gitignore`](../../../.beads/.gitignore) 忽略 `dolt/`。
 - `git ls-files .beads` 当前可见的是：
-  - [`.beads/backup/issues.jsonl`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/backup/issues.jsonl)
-  - [`.beads/backup/dependencies.jsonl`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/backup/dependencies.jsonl)
-  - [`.beads/backup/events.jsonl`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/backup/events.jsonl)
-  - 以及 backup state / metadata / config 等文本文件
+  - [`.beads/backup/issues.jsonl`](../../../.beads/backup/issues.jsonl)
+  - [`.beads/backup/dependencies.jsonl`](../../../.beads/backup/dependencies.jsonl)
+  - [`.beads/backup/events.jsonl`](../../../.beads/backup/events.jsonl)
+  - [`.beads/backup/comments.jsonl`](../../../.beads/backup/comments.jsonl)
+  - [`.beads/backup/labels.jsonl`](../../../.beads/backup/labels.jsonl)
+  - [`.beads/backup/config.jsonl`](../../../.beads/backup/config.jsonl)
+  - 以及 [`.beads/backup/backup_state.json`](../../../.beads/backup/backup_state.json)、[`.beads/metadata.json`](../../../.beads/metadata.json) 等辅助文件
+- [`.beads/interactions.jsonl`](../../../.beads/interactions.jsonl) 也被 Git 跟踪，但不在 `backup/` 下；本次迁移默认不把它当作 canonical restore payload，除非后续核查发现 `bd backup restore` 对它存在显式依赖。
 
 ### 3. 恢复路径已经存在，但还没成为默认操作心智
 
@@ -127,17 +133,26 @@ project git repo
 
 建议文件：
 
-- [`AGENTS.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/AGENTS.md)
-- [`CLAUDE.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/CLAUDE.md)
-- [`.beads/README.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/README.md)
+- [`AGENTS.md`](../../../AGENTS.md)
+- [`CLAUDE.md`](../../../CLAUDE.md)
+- [`.beads/README.md`](../../../.beads/README.md)
+- [`decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md`](../../../decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md)
+- [`decisions/INDEX.md`](../../../decisions/INDEX.md)
 
 预期改动：
 
-- 删除“需要 `just beads-pull` / `just beads-push` 才算 session 完成”的表述
-- 改成“修改了 beads 数据时，刷新 JSONL 备份并随主仓库 Git 提交”
-- 明确 `.beads/dolt/` 不是 Git 跟踪对象
+- 在 `AGENTS.md` 中明确修改两处强约束：
+  - `### Auto-Sync` 改为“本地运行时仍是 Dolt，但远端恢复工件以 `.beads/backup/*` 为准”
+  - `Landing the Plane` checklist / critical rules 改为“修改了 beads 数据时运行 `bd backup --force` 并提交 `.beads/backup/*`”
+- 在 `CLAUDE.md` 中把“beads 远端同步统一使用 `just beads-pull` / `just beads-push`”改成“beads 备份统一使用 JSONL backup + Git push”，避免继续暗示 Dolt remote 是 canonical 路径
+- 在 [`.beads/README.md`](../../../.beads/README.md) 中替换过时示例：
+  - 去掉 `bd dolt push`
+  - 去掉 “Stored in `.beads/issues.jsonl`” 这类与当前仓库事实不一致的表述
+  - 改成“本地运行时是 `.beads/dolt/*`，恢复工件是 `.beads/backup/*.jsonl`”
+- 同步把 ADR 0052 标记为 `accepted`，并更新 `decisions/INDEX.md`
+- 明确 [`.beads/dolt/`](../../../.beads/dolt) 不是 Git 跟踪对象
 
-### Slice B: 命令入口重命名与退役
+### Slice B: 命令入口重命名与过渡废弃
 
 目标：
 
@@ -145,17 +160,21 @@ project git repo
 
 建议文件：
 
-- [`justfile`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/justfile)
+- [`justfile`](../../../justfile)
 
 建议方向：
 
-- 退役或标注废弃：
+- 不直接删除旧入口，保留一个过渡期：
   - `beads-pull`
   - `beads-push`
+- 旧入口执行时必须输出 deprecation warning，并指向新的 canonical 命令 / runbook；不再继续调用 `dolt pull` / `dolt push`
 - 新增更贴合现状的入口，例如：
   - `beads-backup` -> `bd backup --force`
   - `beads-backup-status` -> `bd backup status`
   - `beads-restore-dry-run` -> `bd backup restore --dry-run`
+- 推荐过渡语义：
+  - `beads-push` 输出 warning 后委托到 `beads-backup`
+  - `beads-pull` 输出 warning 后提示用户改走主仓库 `git pull --rebase` 与 restore runbook，而不是伪装成新的“拉取备份”动作
 
 说明：
 
@@ -169,15 +188,14 @@ project git repo
 
 建议文件：
 
-- [`.beads/config.yaml`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/.beads/config.yaml)
+- [`.beads/config.yaml`](../../../.beads/config.yaml)
 
 建议方向：
 
-- 审核当前 `sync.git-remote` 是否仍需保留
-- 如果保留：
-  - 明确写成历史兼容或非 canonical 路径
-- 如果移除：
-  - 同步更新 README / runbook，避免出现“配置删了但文档还要求 push remote”
+- 不删除 `sync.git-remote` 的历史信息，改为注释化保留
+- 在配置旁增加说明：该 remote 已废弃，不再是项目级 canonical 备份路径；见 ADR 0052
+- 核对 [`.beads/hooks/pre-push`](../../../.beads/hooks/pre-push) 及相关 hooks，确认仓库内没有额外的项目自定义 Dolt sync 逻辑
+- 如果 hooks 仍只是 `bd hooks run ...` 的薄封装，则记录“已核查，无需改动”；若发现额外 sync 逻辑，再纳入同一切片
 
 ### Slice D: 恢复演练与验收
 
@@ -189,19 +207,24 @@ project git repo
 
 1. 在主仓库中执行一次 `bd create/update/close`
 2. 执行 `bd backup --force`
-3. 确认 `git status` 能看到 `.beads/backup/*` 的变化
-4. 在 disposable clone 或临时目录中执行：
+3. 执行 `bd backup status`，并确认 `git status` 能看到 `.beads/backup/*` 的变化
+4. 在 disposable clone 或临时目录中确认初始状态不存在 [`.beads/dolt/`](../../../.beads/dolt)
+5. 在 disposable clone 或临时目录中执行：
    - `bd init`
    - `bd backup restore --dry-run`
-5. 记录恢复演练结果与限制
+   - `bd backup restore`
+6. 恢复后执行 `bd list --json`（或等价的全量列举命令），并与 `.beads/backup/issues.jsonl` 的记录数做对照，确认恢复后的数据完整性
+7. 记录恢复演练结果与限制
 
 ## Acceptance
 
 - 文档不再把 `just beads-pull` / `just beads-push` 写成必须步骤。
 - 项目存在明确的 canonical 备份命令入口。
+- `beads-pull` / `beads-push` 在过渡期内只输出 deprecation warning 并指向新入口，不再执行 Dolt remote sync。
+- `sync.git-remote` 以“注释化历史兼容信息”保留，而不是继续作为日常配置要求。
 - `.beads/dolt/` 继续保持不进 Git。
 - 修改 issue 数据后，`.beads/backup/*` 能稳定形成可提交变更。
-- `bd backup restore --dry-run` 能在干净环境下识别备份内容。
+- 在干净环境且初始不存在 `.beads/dolt/` 的前提下，`bd backup restore --dry-run` 能识别备份内容，且实际 restore 后的数据计数与 `.beads/backup/issues.jsonl` 一致。
 - session closeout 语义与实际可靠路径一致，不再要求一个已知不稳定的 Dolt remote。
 
 ## Rollback
@@ -210,14 +233,14 @@ project git repo
 
 - 不动本地 Dolt 运行时数据。
 - 恢复文档中的 Dolt remote 同步口径。
-- 恢复 [`justfile`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/justfile) 中原有 `beads-pull` / `beads-push` 作为 canonical 入口。
+- 恢复 [`justfile`](../../../justfile) 中原有 `beads-pull` / `beads-push` 作为 canonical 入口。
 - 保留本次新增的 JSONL 备份文件，不做删除性回滚，因为它们仍然是合法恢复工件。
 
-## Open Questions
+## Resolved Direction / Follow-ups
 
-- 是否需要保留 `sync.git-remote` 作为“人工紧急尝试路径”，还是应彻底从项目配置中删掉？
-- 是否要增加一个轻量 smoke test，验证 `bd backup --force` 之后 `.beads/backup/issues.jsonl` 至少发生时间戳或记录更新？
-- 在保守版稳定一段时间后，是否单独起一个后续 issue 评估 `no-db: true`？
+- `sync.git-remote` 采用“注释化保留 + 标注废弃”的路径，不直接删除，旁注指向 ADR 0052。
+- 不在本 track 单独新增自动化 smoke test；轻量验证折叠进 `beads-backup-status` 可观测性与 Slice D 的恢复演练。
+- `no-db: true` 评估延后到本方案稳定运行两周后，再按需要创建单独 follow-up issue。
 
 ## Output of This Draft
 
