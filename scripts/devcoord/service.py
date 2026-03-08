@@ -604,10 +604,12 @@ class CoordService:
         gate_id: str,
         task: str,
         target_commit: str | None = None,
+        command_name: str = "PING",
     ) -> None:
         normalized_milestone = _normalize_milestone(milestone)
         normalized_role = _normalize_role(role)
         canonical_target_commit = self._canonicalize_commit_ref(target_commit)
+        cmd = command_name.upper()
         now = self.now_fn()
         with self._locked():
             records = self._coord_records(normalized_milestone)
@@ -616,7 +618,7 @@ class CoordService:
                 "target_commit"
             )
             self.store.create_record(
-                title=f"PING -> {normalized_role}",
+                title=f"{cmd} -> {normalized_role}",
                 record_type="task",
                 description=task,
                 labels=self._base_labels(
@@ -631,7 +633,7 @@ class CoordService:
                     "phase": phase,
                     "gate_id": gate_id,
                     "role": normalized_role,
-                    "command": "PING",
+                    "command": cmd,
                     "requires_ack": True,
                     "effective": False,
                     "target_commit": resolved_target_commit,
@@ -649,7 +651,7 @@ class CoordService:
                 role="pm",
                 status="working",
                 task=task,
-                event="PING_SENT",
+                event=f"{cmd}_SENT",
                 gate_id=gate_id,
                 target_commit=resolved_target_commit,
                 parent_id=gate_rec.record_id,
@@ -1689,7 +1691,8 @@ class CoordService:
         with self.paths.lock_file.open("r+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
-                yield
+                with self.store.transaction():
+                    yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,7 @@ class SQLiteCoordStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        self._in_transaction: bool = False
 
     def _connect(self) -> sqlite3.Connection:
         if self._conn is not None:
@@ -124,13 +126,36 @@ class SQLiteCoordStore:
             self._conn.close()
             self._conn = None
 
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[None]:
+        self._connect()
+        was_in_transaction = self._in_transaction
+        self._in_transaction = True
+        try:
+            yield
+            if not was_in_transaction:
+                self._conn.commit()  # type: ignore[union-attr]
+        except BaseException:
+            if not was_in_transaction:
+                self._conn.rollback()  # type: ignore[union-attr]
+            raise
+        finally:
+            self._in_transaction = was_in_transaction
+
+    def _commit(self) -> None:
+        if not self._in_transaction and self._conn is not None:
+            self._conn.commit()
+
     def init_store(self) -> None:
         conn = self._connect()
         current_version = conn.execute("PRAGMA user_version").fetchone()[0]
         if current_version == 0:
-            conn.executescript(_SCHEMA_SQL)
+            for stmt in _SCHEMA_SQL.split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    conn.execute(stmt)
             conn.execute(f"PRAGMA user_version={SQLITE_SCHEMA_VERSION}")
-            conn.commit()
+            self._commit()
         elif current_version != SQLITE_SCHEMA_VERSION:
             raise CoordError(
                 f"incompatible schema version: expected={SQLITE_SCHEMA_VERSION} "
@@ -232,7 +257,7 @@ class SQLiteCoordStore:
             "VALUES (?, ?, ?, ?)",
             (milestone_id, run_date, ms_status, created_at),
         )
-        conn.commit()
+        self._commit()
         return self._load_milestone(conn, milestone_id)
 
     def _update_milestone(
@@ -262,7 +287,7 @@ class SQLiteCoordStore:
                 "UPDATE milestones SET status=? WHERE milestone_id=?",
                 (ms_status, milestone_id),
             )
-        conn.commit()
+        self._commit()
         return self._load_milestone(conn, milestone_id)
 
     def _load_milestone(self, conn: sqlite3.Connection, milestone_id: str) -> CoordRecord:
@@ -291,7 +316,7 @@ class SQLiteCoordStore:
             "VALUES (?, ?, ?, ?)",
             (milestone_id, phase_id, phase_state, last_commit),
         )
-        conn.commit()
+        self._commit()
         return self._load_phase(conn, milestone_id, phase_id)
 
     def _update_phase(
@@ -318,7 +343,7 @@ class SQLiteCoordStore:
                 f"UPDATE phases SET {', '.join(sets)} WHERE milestone_id=? AND phase_id=?",
                 vals,
             )
-            conn.commit()
+            self._commit()
         return self._load_phase(conn, milestone_id, phase_id)
 
     def _load_phase(
@@ -366,7 +391,7 @@ class SQLiteCoordStore:
                 meta.get("closed_at", ""),
             ),
         )
-        conn.commit()
+        self._commit()
         return self._load_gate(conn, milestone_id, gate_id)
 
     def _update_gate(
@@ -402,7 +427,7 @@ class SQLiteCoordStore:
                 f"UPDATE gates SET {', '.join(sets)} WHERE milestone_id=? AND gate_id=?",
                 vals,
             )
-            conn.commit()
+            self._commit()
         return self._load_gate(conn, milestone_id, gate_id)
 
     def _load_gate(
@@ -441,7 +466,7 @@ class SQLiteCoordStore:
                 meta.get("stale_risk", "none"),
             ),
         )
-        conn.commit()
+        self._commit()
         return self._load_role(conn, milestone_id, role)
 
     def _update_role(
@@ -468,7 +493,7 @@ class SQLiteCoordStore:
                 f"UPDATE roles SET {', '.join(sets)} WHERE milestone_id=? AND role=?",
                 vals,
             )
-            conn.commit()
+            self._commit()
         return self._load_role(conn, milestone_id, role)
 
     def _load_role(
@@ -538,7 +563,7 @@ class SQLiteCoordStore:
                 json.dumps(payload, ensure_ascii=False),
             ),
         )
-        conn.commit()
+        self._commit()
         return self._load_message(conn, cur.lastrowid)
 
     def _update_message(
@@ -571,7 +596,7 @@ class SQLiteCoordStore:
             conn.execute(
                 f"UPDATE messages SET {', '.join(sets)} WHERE message_id=?", vals
             )
-            conn.commit()
+            self._commit()
         return self._load_message(conn, message_id)
 
     def _load_message(self, conn: sqlite3.Connection, message_id: int | None) -> CoordRecord:
@@ -663,7 +688,7 @@ class SQLiteCoordStore:
                 created_at,
             ),
         )
-        conn.commit()
+        self._commit()
         return self._load_event(conn, cur.lastrowid)
 
     def _update_event(
@@ -677,7 +702,7 @@ class SQLiteCoordStore:
             conn.execute(
                 "UPDATE events SET record_closed=1 WHERE event_id=?", (event_id,)
             )
-            conn.commit()
+            self._commit()
         return self._load_event(conn, event_id)
 
     def _load_event(self, conn: sqlite3.Connection, event_id: int | None) -> CoordRecord:

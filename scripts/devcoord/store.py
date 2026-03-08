@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import json
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -85,6 +86,8 @@ class CoordRecord:
 class CoordStore(Protocol):
     def init_store(self) -> None: ...
 
+    def transaction(self) -> contextlib.AbstractContextManager[None]: ...
+
     def list_records(
         self,
         milestone: str,
@@ -125,6 +128,10 @@ class MemoryCoordStore:
 
     def init_store(self) -> None:
         return None
+
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[None]:
+        yield
 
     def list_records(
         self,

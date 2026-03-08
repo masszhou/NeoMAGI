@@ -171,9 +171,9 @@ def build_parser() -> argparse.ArgumentParser:
     cmd_ack_p.add_argument("--phase")
     cmd_ack_p.add_argument("--task", default="ACK command")
 
-    cmd_send_p = cmd_sub.add_parser("send", help="Send a named command (currently: PING)")
-    cmd_send_p.set_defaults(_action="ping")
-    cmd_send_p.add_argument("--name", required=True, choices=["PING"])
+    cmd_send_p = cmd_sub.add_parser("send", help="Send a named command (PING, STOP, WAIT, RESUME)")
+    cmd_send_p.set_defaults(_action="send-command")
+    cmd_send_p.add_argument("--name", required=True, choices=["PING", "STOP", "WAIT", "RESUME"])
     cmd_send_p.add_argument("--milestone", required=True)
     cmd_send_p.add_argument("--role", required=True)
     cmd_send_p.add_argument("--phase", required=True)
@@ -302,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
             "recovery-check",
             "state-sync-ok",
             "ping",
+            "send-command",
             "unconfirmed-instruction",
             "log-pending",
             "stale-detected",
@@ -386,6 +387,15 @@ _PAYLOAD_BUILDERS: dict[str, Callable[[argparse.Namespace], dict[str, Any]]] = {
         "gate_id": a.gate,
         "task": a.task,
         "target_commit": _none_if_placeholder(a.target_commit),
+    },
+    "send-command": lambda a: {
+        "milestone": a.milestone,
+        "role": a.role,
+        "phase": a.phase,
+        "gate_id": a.gate,
+        "task": a.task,
+        "target_commit": _none_if_placeholder(a.target_commit),
+        "command_name": a.name,
     },
     "unconfirmed-instruction": lambda a: {
         "milestone": a.milestone,
@@ -527,6 +537,17 @@ def _execute_action(service: CoordService, command: str, payload: dict[str, Any]
             gate_id=_payload_alias(payload, "gate_id", "gate"),
             task=_require_payload_str(payload, "task"),
             target_commit=_payload_str(payload, "target_commit", None),
+        )
+        return
+    if command == "send-command":
+        service.ping(
+            _require_payload_str(payload, "milestone"),
+            role=_require_payload_str(payload, "role"),
+            phase=_require_payload_str(payload, "phase"),
+            gate_id=_payload_alias(payload, "gate_id", "gate"),
+            task=_require_payload_str(payload, "task"),
+            target_commit=_payload_str(payload, "target_commit", None),
+            command_name=_require_payload_str(payload, "command_name"),
         )
         return
     if command == "unconfirmed-instruction":

@@ -24,7 +24,7 @@ uv run python scripts/devcoord/coord.py <group> <subcommand> [options]
 |-------|-----------|------|
 | `init` | — | 初始化控制面 |
 | `gate` | `open` / `review` / `close` | Gate 生命周期 |
-| `command` | `ack` / `send` | 指令确认 / 发送 |
+| `command` | `ack` / `send` | 指令确认 / 发送 (send: PING, STOP, WAIT, RESUME) |
 | `event` | `heartbeat` / `phase-complete` / `recovery-check` / `state-sync-ok` / `stale-detected` / `log-pending` / `unconfirmed-instruction` | 协议事件 |
 | `projection` | `render` / `audit` | 投影生成与对账 |
 | `milestone` | `close` | 关闭 milestone |
