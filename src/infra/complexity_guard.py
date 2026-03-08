@@ -16,6 +16,16 @@ from typing import Any
 CODE_GLOBS = ("*.py", "*.ts", "*.tsx", "*.js", "*.jsx")
 BRANCH_NODES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.Match)
 DEFAULT_BASELINE_PATH = ".complexity-baseline.json"
+TEST_FILE_SUFFIXES = (
+    ".test.ts",
+    ".test.tsx",
+    ".test.js",
+    ".test.jsx",
+    ".spec.ts",
+    ".spec.tsx",
+    ".spec.js",
+    ".spec.jsx",
+)
 
 
 @dataclass(frozen=True)
@@ -109,33 +119,28 @@ GROUP_THRESHOLDS = {
 def classify_path(path: Path) -> str | None:
     posix_path = path.as_posix()
     name = path.name
-    if posix_path.startswith("alembic/versions/"):
+    if _is_ignored_path(posix_path):
         return None
-    if posix_path.startswith("tests/"):
-        return "tests"
-    if "/__tests__/" in f"/{posix_path}/":
-        return "tests"
-    if name.startswith("test_"):
-        return "tests"
-    if any(
-        name.endswith(suffix)
-        for suffix in (
-            ".test.ts",
-            ".test.tsx",
-            ".test.js",
-            ".test.jsx",
-            ".spec.ts",
-            ".spec.tsx",
-            ".spec.js",
-            ".spec.jsx",
-        )
-    ):
+    if _is_test_path(posix_path, name):
         return "tests"
     if posix_path.startswith("scripts/"):
         return "scripts"
     if posix_path.startswith("src/"):
         return "prod"
     return None
+
+
+def _is_ignored_path(posix_path: str) -> bool:
+    return posix_path.startswith("alembic/versions/")
+
+
+def _is_test_path(posix_path: str, name: str) -> bool:
+    return (
+        posix_path.startswith("tests/")
+        or "/__tests__/" in f"/{posix_path}/"
+        or name.startswith("test_")
+        or name.endswith(TEST_FILE_SUFFIXES)
+    )
 
 
 def tracked_code_paths(workspace_root: Path) -> list[Path]:

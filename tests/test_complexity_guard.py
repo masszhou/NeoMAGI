@@ -38,52 +38,13 @@ def test_analyze_paths_reports_file_and_function_findings(tmp_path: Path) -> Non
 
 def test_detect_regressions_flags_new_and_worsened_findings() -> None:
     baseline = [
-        Finding(
-            severity="block",
-            group="prod",
-            metric="file_lines",
-            path="src/example.py",
-            actual=810,
-            limit=800,
-        ).to_dict(),
-        Finding(
-            severity="block",
-            group="prod",
-            metric="function_lines",
-            path="src/example.py",
-            symbol="run",
-            line=10,
-            actual=55,
-            limit=50,
-        ).to_dict(),
+        _finding("prod", "file_lines", "src/example.py", 810),
+        _finding("prod", "function_lines", "src/example.py", 55, symbol="run", line=10),
     ]
     current = [
-        Finding(
-            severity="block",
-            group="prod",
-            metric="file_lines",
-            path="src/example.py",
-            actual=820,
-            limit=800,
-        ).to_dict(),
-        Finding(
-            severity="block",
-            group="prod",
-            metric="function_lines",
-            path="src/example.py",
-            symbol="run",
-            line=10,
-            actual=52,
-            limit=50,
-        ).to_dict(),
-        Finding(
-            severity="block",
-            group="scripts",
-            metric="file_lines",
-            path="scripts/tool.py",
-            actual=900,
-            limit=800,
-        ).to_dict(),
+        _finding("prod", "file_lines", "src/example.py", 820),
+        _finding("prod", "function_lines", "src/example.py", 52, symbol="run", line=10),
+        _finding("scripts", "file_lines", "scripts/tool.py", 900),
     ]
 
     regressions = detect_regressions(current, baseline)
@@ -123,6 +84,28 @@ def _python_source(padding_lines: int) -> str:
     ]
     chunks.extend("" for _ in range(padding_lines))
     return "\n".join(chunks)
+
+
+def _finding(
+    group: str,
+    metric: str,
+    path: str,
+    actual: int,
+    *,
+    symbol: str | None = None,
+    line: int | None = None,
+) -> dict[str, object]:
+    limit = 800 if metric == "file_lines" else 50
+    return Finding(
+        severity="block",
+        group=group,
+        metric=metric,
+        path=path,
+        actual=actual,
+        limit=limit,
+        symbol=symbol,
+        line=line,
+    ).to_dict()
 
 
 def _too_long_function() -> str:

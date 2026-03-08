@@ -42,6 +42,12 @@ class IterationPrep:
     stop_text: str | None = None
 
 
+@dataclass
+class StreamEventState:
+    text: str | None = None
+    tool_calls: list[dict[str, str]] | None = None
+
+
 async def handle_message(
     loop: AgentLoop,
     session_id: str,
@@ -130,11 +136,14 @@ async def _run_iteration_loop(
             loop._model,
             tools=state.tools_schema,
         ):
-            if isinstance(event, ContentDelta):
-                yield TextChunk(content=event.text)
-                collected_text += event.text
-            elif isinstance(event, ToolCallsComplete):
-                tool_calls_result = event.tool_calls
+            stream_state = _parse_stream_event(event)
+            if stream_state.text is not None:
+                yield TextChunk(content=stream_state.text)
+                collected_text += stream_state.text
+            tool_calls_result = _merge_tool_calls_result(
+                tool_calls_result,
+                stream_state.tool_calls,
+            )
         if tool_calls_result:
             async for event in _handle_tool_calls(
                 loop,
@@ -146,17 +155,7 @@ async def _run_iteration_loop(
             ):
                 yield event
             continue
-        await loop._session_manager.append_message(
-            state.session_id,
-            "assistant",
-            collected_text,
-            lock_token=state.lock_token,
-        )
-        _agent_logger().info(
-            "response_complete",
-            session_id=state.session_id,
-            chars=len(collected_text),
-        )
+        await _complete_assistant_response(loop, state, collected_text)
         return
     _agent_logger().warning(
         "max_tool_iterations",
@@ -430,6 +429,24 @@ def _execution_context(messages: list[dict[str, Any]]) -> str:
     return "\n".join(message.get("content", "") for message in messages if message.get("content"))
 
 
+async def _complete_assistant_response(
+    loop: AgentLoop,
+    state: RequestState,
+    collected_text: str,
+) -> None:
+    await loop._session_manager.append_message(
+        state.session_id,
+        "assistant",
+        collected_text,
+        lock_token=state.lock_token,
+    )
+    _agent_logger().info(
+        "response_complete",
+        session_id=state.session_id,
+        chars=len(collected_text),
+    )
+
+
 def _over_budget_text() -> str:
     return "抱歉，当前会话内容过长，无法进一步压缩。请开始新会话继续对话。"
 
@@ -458,6 +475,21 @@ def _log_parse_result(tool_call: dict[str, str]) -> dict:
             raw_args=tool_call["arguments"][:200],
         )
     return parsed_args
+
+
+def _parse_stream_event(event: Any) -> StreamEventState:
+    if isinstance(event, ContentDelta):
+        return StreamEventState(text=event.text)
+    if isinstance(event, ToolCallsComplete):
+        return StreamEventState(tool_calls=event.tool_calls)
+    return StreamEventState()
+
+
+def _merge_tool_calls_result(
+    current: list[dict[str, str]] | None,
+    incoming: list[dict[str, str]] | None,
+) -> list[dict[str, str]] | None:
+    return incoming if incoming is not None else current
 
 
 def _mode_denial(

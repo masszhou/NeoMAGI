@@ -34,27 +34,6 @@ async def try_compact(
             compacted_context=compacted_context,
             current_user_seq=current_user_seq,
         )
-        if result.status == "noop":
-            _agent_logger().info(
-                "compaction_noop",
-                session_id=session_id,
-                last_compaction_seq=last_compaction_seq,
-            )
-            return result
-        await loop._session_manager.store_compaction_result(
-            session_id,
-            result,
-            lock_token=lock_token,
-        )
-        await _persist_flush_candidates(loop, result, session_id, scope_key)
-        _agent_logger().info(
-            "compaction_complete",
-            session_id=session_id,
-            status=result.status,
-            new_compaction_seq=result.new_compaction_seq,
-            flush_candidates=len(result.memory_flush_candidates),
-        )
-        return result
     except Exception:
         return await _recover_from_compaction_failure(
             loop,
@@ -62,6 +41,14 @@ async def try_compact(
             current_user_seq=current_user_seq,
             lock_token=lock_token,
         )
+    return await _finalize_compaction_result(
+        loop,
+        result,
+        session_id=session_id,
+        last_compaction_seq=last_compaction_seq,
+        lock_token=lock_token,
+        scope_key=scope_key,
+    )
 
 
 def emergency_trim(
@@ -118,6 +105,28 @@ async def _run_compaction(
         model=loop._model,
         session_id=session_id,
     )
+
+
+async def _finalize_compaction_result(
+    loop: AgentLoop,
+    result: CompactionResult,
+    *,
+    session_id: str,
+    last_compaction_seq: int | None,
+    lock_token: str,
+    scope_key: str,
+) -> CompactionResult:
+    if result.status == "noop":
+        _log_compaction_noop(session_id, last_compaction_seq)
+        return result
+    await loop._session_manager.store_compaction_result(
+        session_id,
+        result,
+        lock_token=lock_token,
+    )
+    await _persist_flush_candidates(loop, result, session_id, scope_key)
+    _log_compaction_complete(session_id, result)
+    return result
 
 
 async def _recover_from_compaction_failure(
@@ -182,6 +191,24 @@ def _emergency_trim_metadata(preserved_turns_count: int, trimmed_count: int) -> 
         "compacted_context_tokens": 0,
         "rolling_summary_input_tokens": 0,
     }
+
+
+def _log_compaction_noop(session_id: str, last_compaction_seq: int | None) -> None:
+    _agent_logger().info(
+        "compaction_noop",
+        session_id=session_id,
+        last_compaction_seq=last_compaction_seq,
+    )
+
+
+def _log_compaction_complete(session_id: str, result: CompactionResult) -> None:
+    _agent_logger().info(
+        "compaction_complete",
+        session_id=session_id,
+        status=result.status,
+        new_compaction_seq=result.new_compaction_seq,
+        flush_candidates=len(result.memory_flush_candidates),
+    )
 
 
 def _agent_logger():
