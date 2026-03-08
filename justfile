@@ -6,11 +6,20 @@ beads_repo_dir := ".beads/dolt/NeoMAGI"
 # Run linter checks
 lint:
     uv run ruff check src/
+    uv run python -m src.infra.complexity_guard check
 
 # Auto-format code
 format:
     uv run ruff format src/
     uv run ruff check --fix src/
+
+# Show current complexity snapshot
+complexity-report:
+    uv run python -m src.infra.complexity_guard report
+
+# Refresh ratchet baseline after an intentional cleanup pass
+complexity-baseline:
+    uv run python -m src.infra.complexity_guard write-baseline
 
 # Start development server (default: safer for Telegram/WebSocket debugging)
 dev:

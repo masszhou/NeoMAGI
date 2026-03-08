@@ -144,6 +144,15 @@ NeoMAGI 是一个开源 personal agent：有持久记忆、代表用户信息利
 - Frontend 包管理器使用 `pnpm`。
 - 常规开发/测试命令入口统一使用 `just`；devcoord 控制面协议写操作直接使用 `scripts/devcoord/coord.py`，不再额外包一层 `just`。
 
+## 复杂度治理
+- 默认目标：`src/`、`scripts/` 追求 `单文件 <= 500`、`单函数 <= 30`、`嵌套 <= 3`、`分支 <= 3`。
+- 硬门禁：`src/`、`scripts/` 出现 `单文件 > 800`、`单函数 > 50`、`嵌套 > 3`、`分支 > 6` 即视为 block。
+- `tests/` 文件级阈值放宽到 `<= 1200`，但函数级红线仍按 `50 / 3 / 6` 执行；`alembic/versions/` 不纳入自动文件长度治理。
+- 采用 ratchet 治理：`.complexity-baseline.json` 记录当前 block 级存量债务，`just lint` 只阻止新增或恶化的 block 问题，不要求一次性清零历史债。
+- 当前自动检查覆盖所有 tracked `*.py/*.ts/*.tsx/*.js/*.jsx` 的文件长度，以及 Python 的函数长度/分支/嵌套；前端函数级自动化后续补齐。
+- 常用命令：`just complexity-report` 查看全仓快照，`just complexity-baseline` 在完成一轮明确治理后刷新 baseline。
+- 任何触碰现有超线热点的改动，默认要求“至少不再变坏”；若顺手能拆一层，优先拆分而不是继续堆叠。
+
 ## 决策与计划治理
 
 ### M0 Governance (Decision Log)
