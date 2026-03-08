@@ -79,8 +79,8 @@ milestone 关闭的标准流程：
 ## 6. 与 beads / bd 的关系
 
 - `bd` 仍用于 backlog / issue tracking
-- devcoord control-plane 写入**不再**触发 `just beads-pull` / `just beads-push`
-- `just beads-pull` / `just beads-push` 只在本轮实际修改 beads / bd issue 数据时才需要
+- devcoord control-plane 写入**不再**触发 beads backup
+- beads issue 数据修改后使用 `just beads-backup` + 普通 `git add / commit / push`（ADR 0052）
 
 ## 7. Historical Cutover Checklist
 

@@ -1,19 +1,34 @@
 # Beads - AI-Native Issue Tracking
 
-Welcome to Beads! This repository uses **Beads** for issue tracking - a modern, AI-native tool designed to live directly in your codebase alongside your code.
-
-## What is Beads?
-
-Beads is issue tracking that lives in your repo, making it perfect for AI coding agents and developers who want their issues close to their code. No web UI required - everything works through the CLI and integrates seamlessly with git.
+This repository uses **Beads** (`bd`) for issue tracking.
 
 **Learn more:** [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
 
+## Architecture
+
+```
+.beads/
+├── dolt/          # Local Dolt runtime database (NOT tracked by Git, see .gitignore)
+├── backup/        # JSONL backup files (tracked by Git — canonical recovery artifacts)
+│   ├── issues.jsonl
+│   ├── dependencies.jsonl
+│   ├── events.jsonl
+│   ├── comments.jsonl
+│   ├── labels.jsonl
+│   ├── config.jsonl
+│   └── backup_state.json
+├── config.yaml    # bd configuration
+└── hooks/         # bd git hooks (thin wrappers over `bd hooks run`)
+```
+
+- **Local runtime**: `bd` reads/writes `.beads/dolt/*`. Each write auto-commits to local Dolt history.
+- **Recovery artifacts**: `.beads/backup/*.jsonl` are Git-tracked JSONL exports. This is the canonical off-machine backup path (ADR 0052).
+- **Dolt remote sync is deprecated**: `bd dolt push` / `bd dolt pull` / `bd sync` are NOT used. See ADR 0052.
+
 ## Quick Start
 
-### Essential Commands
-
 ```bash
-# Create new issues
+# Create issues
 bd create "Add user authentication"
 
 # View all issues
@@ -25,57 +40,42 @@ bd show <issue-id>
 # Update issue status
 bd update <issue-id> --claim
 bd update <issue-id> --status done
-
-# Sync with Dolt remote
-bd dolt push
 ```
 
-### Working with Issues
+## Backup & Restore
 
-Issues in Beads are:
-- **Git-native**: Stored in `.beads/issues.jsonl` and synced like code
-- **AI-friendly**: CLI-first design works perfectly with AI coding agents
-- **Branch-aware**: Issues can follow your branch workflow
-- **Always in sync**: Auto-syncs with your commits
+### After modifying issue data
+
+```bash
+# Refresh JSONL backup
+just beads-backup          # or: bd backup --force
+
+# Check backup status
+just beads-backup-status   # or: bd backup status
+
+# Commit and push via normal Git
+git add .beads/backup/
+git commit -m "bd: backup <date>"
+git push
+```
+
+### Restoring from a fresh clone (no `.beads/dolt/`)
+
+```bash
+bd init
+bd backup restore --dry-run   # preview what will be restored
+bd backup restore             # actual restore
+bd list                       # verify data integrity
+```
 
 ## Why Beads?
 
-✨ **AI-Native Design**
-- Built specifically for AI-assisted development workflows
-- CLI-first interface works seamlessly with AI coding agents
-- No context switching to web UIs
+- **AI-Native**: CLI-first, JSON output, designed for AI coding agents
+- **Git-Friendly**: Issues live in your repo, backup via normal Git workflow
+- **Dependency-Aware**: Track blockers and relationships between issues
+- **Works Offline**: Local Dolt runtime, sync when you push
 
-🚀 **Developer Focused**
-- Issues live in your repo, right next to your code
-- Works offline, syncs when you push
-- Fast, lightweight, and stays out of your way
+## More Info
 
-🔧 **Git Integration**
-- Automatic sync with git commits
-- Branch-aware issue tracking
-- Intelligent JSONL merge resolution
-
-## Get Started with Beads
-
-Try Beads in your own projects:
-
-```bash
-# Install Beads
-curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
-
-# Initialize in your repo
-bd init
-
-# Create your first issue
-bd create "Try out Beads"
-```
-
-## Learn More
-
-- **Documentation**: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
-- **Quick Start Guide**: Run `bd quickstart`
-- **Examples**: [github.com/steveyegge/beads/examples](https://github.com/steveyegge/beads/tree/main/examples)
-
----
-
-*Beads: Issue tracking that moves at the speed of thought* ⚡
+- [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
+- Run `bd quickstart` for interactive guide

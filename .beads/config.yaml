@@ -54,5 +54,9 @@
 # - github.org
 # - github.repo
 
-sync:
-  git-remote: "git@github.com:Boat-Labs/NeoMAGI-beads.git"
+# [DEPRECATED] Dolt remote sync is retired (ADR 0052).
+# The git-remote below is kept as historical reference only.
+# Project-level backup now uses .beads/backup/*.jsonl tracked by the main Git repo.
+# See: decisions/0052-project-beads-backup-git-tracked-jsonl-exports.md
+# sync:
+#   git-remote: "git@github.com:Boat-Labs/NeoMAGI-beads.git"

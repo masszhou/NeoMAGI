@@ -33,13 +33,33 @@ dev-reload:
 init-workspace:
     uv run python -m src.infra.init_workspace
 
-# Pull beads control-plane state from Dolt remote
-beads-pull:
-    cd {{beads_repo_dir}} && dolt pull origin main
+# Refresh JSONL backup of beads issue data (ADR 0052)
+beads-backup:
+    bd backup --force
 
-# Push beads control-plane state to Dolt remote
+# Show beads backup status
+beads-backup-status:
+    bd backup status
+
+# Preview what a restore would do (dry-run)
+beads-restore-dry-run:
+    bd backup restore --dry-run
+
+# [DEPRECATED] Was: dolt pull. Dolt remote sync is retired (ADR 0052).
+# Use 'just beads-backup' + normal git workflow instead.
+beads-pull:
+    @echo "DEPRECATED: 'just beads-pull' is retired. Dolt remote sync is no longer used."
+    @echo "Recovery path: git pull --rebase (to get latest .beads/backup/*), then 'bd init && bd backup restore'."
+    @echo "See ADR 0052 for details."
+    @exit 1
+
+# [DEPRECATED] Was: dolt push. Dolt remote sync is retired (ADR 0052).
+# Use 'just beads-backup' + normal git workflow instead.
 beads-push:
-    cd {{beads_repo_dir}} && dolt push origin main
+    @echo "DEPRECATED: 'just beads-push' is retired. Dolt remote sync is no longer used."
+    @echo "New workflow: 'just beads-backup' then 'git add .beads/backup/ && git commit && git push'."
+    @echo "See ADR 0052 for details."
+    @exit 1
 
 # Start frontend dev server
 dev-frontend:
