@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-09T23:05:43+00:00",
+  "generated_at": "2026-03-09T23:08:12+00:00",
   "policy_version": 1,
   "thresholds": {
     "prod": {
@@ -250,28 +250,6 @@
       "fingerprint": "function_lines::src/gateway/budget_gate.py::BudgetGate.try_reserve::40",
       "symbol": "BudgetGate.try_reserve",
       "line": 40
-    },
-    {
-      "severity": "block",
-      "group": "prod",
-      "metric": "function_branches",
-      "path": "src/gateway/dispatch.py",
-      "actual": 8,
-      "limit": 6,
-      "fingerprint": "function_branches::src/gateway/dispatch.py::dispatch_chat::47",
-      "symbol": "dispatch_chat",
-      "line": 47
-    },
-    {
-      "severity": "block",
-      "group": "prod",
-      "metric": "function_lines",
-      "path": "src/gateway/dispatch.py",
-      "actual": 95,
-      "limit": 50,
-      "fingerprint": "function_lines::src/gateway/dispatch.py::dispatch_chat::47",
-      "symbol": "dispatch_chat",
-      "line": 47
     },
     {
       "severity": "block",

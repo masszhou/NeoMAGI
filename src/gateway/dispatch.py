@@ -11,8 +11,8 @@ from collections.abc import AsyncIterator
 import structlog
 
 from src.agent.events import AgentEvent
-from src.agent.provider_registry import AgentLoopRegistry
-from src.gateway.budget_gate import BudgetGate
+from src.agent.provider_registry import AgentLoopRegistry, ProviderEntry
+from src.gateway.budget_gate import BudgetGate, Reservation
 from src.infra.errors import GatewayError
 from src.session.manager import SessionManager
 from src.session.scope_resolver import SessionIdentity
@@ -44,6 +44,123 @@ def _extract_eval_run_id(session_id: str) -> str:
     return session_id  # fallback: use full session_id as run_id
 
 
+def _bind_provider(registry: AgentLoopRegistry, provider: str | None) -> ProviderEntry:
+    try:
+        entry = registry.get(provider)
+    except KeyError:
+        raise GatewayError(
+            f"Provider '{provider}' is not available. Configured: {registry.available_providers()}",
+            code="PROVIDER_NOT_AVAILABLE",
+        )
+
+    logger.info(
+        "agent_run_provider_bound",
+        provider=entry.name,
+        model=entry.model,
+        source="request" if provider else "default",
+    )
+    return entry
+
+
+async def _claim_session_or_raise(
+    session_manager: SessionManager,
+    session_id: str,
+    *,
+    ttl_seconds: int,
+) -> str:
+    lock_token = await session_manager.try_claim_session(
+        session_id,
+        ttl_seconds=ttl_seconds,
+    )
+    if lock_token is None:
+        raise GatewayError(
+            "Session is being processed by another request. Please try again.",
+            code="SESSION_BUSY",
+        )
+    return lock_token
+
+
+async def _reserve_budget_or_raise(
+    budget_gate: BudgetGate,
+    entry: ProviderEntry,
+    *,
+    session_id: str,
+) -> Reservation:
+    reservation = await budget_gate.try_reserve(
+        provider=entry.name,
+        model=entry.model,
+        estimated_cost_eur=DEFAULT_RESERVE_EUR,
+        session_id=session_id,
+        eval_run_id=_extract_eval_run_id(session_id),
+    )
+    if reservation.denied:
+        raise GatewayError(reservation.message, code="BUDGET_EXCEEDED")
+    return reservation
+
+
+async def _yield_agent_events(
+    entry: ProviderEntry,
+    *,
+    session_id: str,
+    content: str,
+    lock_token: str,
+    identity: SessionIdentity | None,
+    dm_scope: str | None,
+) -> AsyncIterator[AgentEvent]:
+    async for event in entry.agent_loop.handle_message(
+        session_id=session_id,
+        content=content,
+        lock_token=lock_token,
+        identity=identity,
+        dm_scope=dm_scope,
+    ):
+        yield event
+
+
+def _should_settle(reservation: Reservation | None) -> bool:
+    return reservation is not None and not reservation.denied
+
+
+async def _settle_reservation(
+    budget_gate: BudgetGate,
+    reservation: Reservation | None,
+    *,
+    entry: ProviderEntry,
+    session_id: str,
+) -> None:
+    if not _should_settle(reservation):
+        return
+    try:
+        await budget_gate.settle(
+            reservation_id=reservation.reservation_id,
+            actual_cost_eur=DEFAULT_RESERVE_EUR,
+        )
+    except Exception:
+        logger.exception(
+            "budget_settle_failed",
+            reservation_id=reservation.reservation_id,
+            session_id=session_id,
+            provider=entry.name,
+            model=entry.model,
+        )
+
+
+async def _release_session(
+    session_manager: SessionManager,
+    *,
+    session_id: str,
+    lock_token: str,
+) -> None:
+    try:
+        await session_manager.release_session(session_id, lock_token)
+    except Exception:
+        logger.exception(
+            "session_release_failed",
+            session_id=session_id,
+            msg="Lock will be recovered by TTL expiry",
+        )
+
+
 async def dispatch_chat(
     *,
     registry: AgentLoopRegistry,
@@ -61,81 +178,23 @@ async def dispatch_chat(
     Yields AgentEvent from handle_message. Caller maps events to transport protocol.
     Raises GatewayError for SESSION_BUSY, BUDGET_EXCEEDED, PROVIDER_NOT_AVAILABLE.
     """
-    # 1. Provider routing
-    try:
-        entry = registry.get(provider)
-    except KeyError:
-        raise GatewayError(
-            f"Provider '{provider}' is not available. Configured: {registry.available_providers()}",
-            code="PROVIDER_NOT_AVAILABLE",
-        )
-
-    logger.info(
-        "agent_run_provider_bound",
-        provider=entry.name,
-        model=entry.model,
-        source="request" if provider else "default",
-    )
-
-    # 2. Session claim
-    lock_token = await session_manager.try_claim_session(
+    entry = _bind_provider(registry, provider)
+    lock_token = await _claim_session_or_raise(
+        session_manager,
         session_id,
         ttl_seconds=session_claim_ttl_seconds,
     )
-    if lock_token is None:
-        raise GatewayError(
-            "Session is being processed by another request. Please try again.",
-            code="SESSION_BUSY",
-        )
 
     reservation = None
     try:
         await session_manager.load_session_from_db(session_id, force=True)
-
-        # 3. Budget reserve
-        reservation = await budget_gate.try_reserve(
-            provider=entry.name,
-            model=entry.model,
-            estimated_cost_eur=DEFAULT_RESERVE_EUR,
-            session_id=session_id,
-            eval_run_id=_extract_eval_run_id(session_id),
-        )
-        if reservation.denied:
-            raise GatewayError(reservation.message, code="BUDGET_EXCEEDED")
-
-        # 4. Handle message
-        async for event in entry.agent_loop.handle_message(
-            session_id=session_id,
-            content=content,
-            lock_token=lock_token,
-            identity=identity,
-            dm_scope=dm_scope,
+        reservation = await _reserve_budget_or_raise(budget_gate, entry, session_id=session_id)
+        async for event in _yield_agent_events(
+            entry, session_id=session_id, content=content, lock_token=lock_token,
+            identity=identity, dm_scope=dm_scope,
         ):
             yield event
 
     finally:
-        # 5. Budget settle (best-effort)
-        if reservation is not None and not reservation.denied:
-            try:
-                await budget_gate.settle(
-                    reservation_id=reservation.reservation_id,
-                    actual_cost_eur=DEFAULT_RESERVE_EUR,
-                )
-            except Exception:
-                logger.exception(
-                    "budget_settle_failed",
-                    reservation_id=reservation.reservation_id,
-                    session_id=session_id,
-                    provider=entry.name,
-                    model=entry.model,
-                )
-
-        # 6. Session release (best-effort, TTL recovers stale locks)
-        try:
-            await session_manager.release_session(session_id, lock_token)
-        except Exception:
-            logger.exception(
-                "session_release_failed",
-                session_id=session_id,
-                msg="Lock will be recovered by TTL expiry",
-            )
+        await _settle_reservation(budget_gate, reservation, entry=entry, session_id=session_id)
+        await _release_session(session_manager, session_id=session_id, lock_token=lock_token)
