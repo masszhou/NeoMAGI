@@ -108,24 +108,18 @@ def _assert_workspace_path_consistency() -> Path:
     return ws
 
 
-async def run_restore(db_dump: Path, workspace_archive: Path) -> None:
-    from sqlalchemy import text
+def _fail_restore_step(results: list[tuple[str, str]], step: str, detail: str) -> None:
+    results.append((step, f"FAIL: {detail[:200]}"))
+    _print_summary(results)
+    sys.exit(1)
 
-    from src.config.settings import get_settings
-    from src.constants import DB_SCHEMA
-    from src.infra.preflight import run_preflight
-    from src.memory.evolution import EvolutionEngine
-    from src.memory.indexer import MemoryIndexer
-    from src.session.database import create_db_engine, ensure_schema, make_session_factory
 
-    results: list[tuple[str, str]] = []  # (step, status)
-
-    # --- Step 1: Check pg_restore ---
-    pg_restore = _check_pg_restore()
-    results.append(("1. pg_restore check", "OK"))
-    logger.info("restore_step_1_done")
-
-    # --- Step 2: pg_restore DB truth-source ---
+def _run_pg_restore_step(
+    pg_restore: str,
+    db_dump: Path,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
     dsn = _get_dsn()
     cmd = [pg_restore, "--clean", "--if-exists", f"--dbname={dsn}", str(db_dump)]
     logger.info("restore_step_2_start", dump=str(db_dump))
@@ -135,9 +129,7 @@ async def run_restore(db_dump: Path, workspace_archive: Path) -> None:
         fatal_errors, ignorable_errors = _split_pg_restore_errors(stderr)
         if fatal_errors:
             logger.error("pg_restore_failed", stderr=stderr)
-            results.append(("2. pg_restore DB", f"FAIL: {stderr[:200]}"))
-            _print_summary(results)
-            sys.exit(1)
+            _fail_restore_step(results, "2. pg_restore DB", stderr)
         if stderr:
             event = (
                 "pg_restore_known_compat_warning" if ignorable_errors else "pg_restore_warnings"
@@ -146,77 +138,155 @@ async def run_restore(db_dump: Path, workspace_archive: Path) -> None:
     results.append(("2. pg_restore DB", "OK"))
     logger.info("restore_step_2_done")
 
-    # --- Step 3: ensure_schema ---
+
+async def _initialize_restore_runtime(
+    *,
+    results: list[tuple[str, str]],
+) -> tuple[object, Path, object, object]:
+    from src.config.settings import get_settings
+    from src.constants import DB_SCHEMA
+    from src.session.database import create_db_engine, ensure_schema, make_session_factory
+
     settings = get_settings()
     workspace = _assert_workspace_path_consistency()
     engine = await create_db_engine(settings.database)
+    await ensure_schema(engine, DB_SCHEMA)
+    results.append(("3. ensure_schema", "OK"))
+    logger.info("restore_step_3_done")
+    return settings, workspace, engine, make_session_factory(engine)
+
+
+def _clear_workspace_memory(
+    workspace: Path,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    memory_dir = workspace / "memory"
+    if memory_dir.is_dir():
+        shutil.rmtree(memory_dir)
+    memory_md = workspace / "MEMORY.md"
+    if memory_md.is_file():
+        memory_md.unlink()
+    results.append(("3.5. Clear workspace memory", "OK"))
+    logger.info("restore_step_3_5_done", cleared_dir=str(workspace))
+
+
+def _extract_workspace_archive(
+    workspace_archive: Path,
+    workspace: Path,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    logger.info("restore_step_4_start", archive=str(workspace_archive))
+    proc = subprocess.run(
+        ["tar", "xzf", str(workspace_archive), "-C", str(workspace)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        logger.error("tar_extract_failed", stderr=proc.stderr)
+        _fail_restore_step(results, "4. Extract workspace", proc.stderr)
+    results.append(("4. Extract workspace", "OK"))
+    logger.info("restore_step_4_done")
+
+
+async def _reconcile_soul_projection(
+    session_factory: object,
+    workspace: Path,
+    memory_settings: object,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    from src.memory.evolution import EvolutionEngine
+
+    evolution = EvolutionEngine(session_factory, workspace, memory_settings)
+    reconcile_changed = False
     try:
-        await ensure_schema(engine, DB_SCHEMA)
-        results.append(("3. ensure_schema", "OK"))
-        logger.info("restore_step_3_done")
+        await evolution.reconcile_soul_projection()
+        reconcile_changed = True
+    except Exception:
+        logger.exception("reconcile_failed")
+    results.append(("5. reconcile SOUL.md", "OK" if reconcile_changed else "WARN (no-op)"))
+    logger.info("restore_step_5_done", changed=reconcile_changed)
 
-        # --- Step 3.5: Clear workspace memory files before extract ---
-        memory_dir = workspace / "memory"
-        if memory_dir.is_dir():
-            shutil.rmtree(memory_dir)
-        memory_md = workspace / "MEMORY.md"
-        if memory_md.is_file():
-            memory_md.unlink()
-        results.append(("3.5. Clear workspace memory", "OK"))
-        logger.info("restore_step_3_5_done", cleared_dir=str(workspace))
 
-        # --- Step 4: Extract workspace archive ---
-        logger.info("restore_step_4_start", archive=str(workspace_archive))
-        proc = subprocess.run(
-            ["tar", "xzf", str(workspace_archive), "-C", str(workspace)],
-            capture_output=True,
-            text=True,
-            timeout=120,
+async def _truncate_memory_entries(
+    engine: object,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    from sqlalchemy import text
+
+    from src.constants import DB_SCHEMA
+
+    async with engine.begin() as conn:
+        await conn.execute(text(f"TRUNCATE {DB_SCHEMA}.memory_entries"))
+    results.append(("6. TRUNCATE memory_entries", "OK"))
+    logger.info("restore_step_6_done")
+
+
+async def _reindex_memory_entries(
+    session_factory: object,
+    memory_settings: object,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    from src.memory.indexer import MemoryIndexer
+
+    indexer = MemoryIndexer(session_factory, memory_settings)
+    entry_count = await indexer.reindex_all()
+    results.append(("7. reindex_all", f"OK ({entry_count} entries)"))
+    logger.info("restore_step_7_done", entries=entry_count)
+
+
+async def _run_restore_preflight(
+    settings: object,
+    engine: object,
+    *,
+    results: list[tuple[str, str]],
+) -> object:
+    from src.infra.preflight import run_preflight
+
+    report = await run_preflight(settings, engine)
+    if report.passed:
+        results.append(("8. preflight", "PASS"))
+    else:
+        fail_names = [c.name for c in report.checks if c.status.value == "fail"]
+        results.append(("8. preflight", f"FAIL: {', '.join(fail_names)}"))
+    logger.info("restore_step_8_done", passed=report.passed)
+    return report
+
+
+async def run_restore(db_dump: Path, workspace_archive: Path) -> None:
+    results: list[tuple[str, str]] = []  # (step, status)
+
+    pg_restore = _check_pg_restore()
+    results.append(("1. pg_restore check", "OK"))
+    logger.info("restore_step_1_done")
+
+    _run_pg_restore_step(pg_restore, db_dump, results=results)
+
+    settings, workspace, engine, session_factory = await _initialize_restore_runtime(
+        results=results
+    )
+    report = None
+    try:
+        _clear_workspace_memory(workspace, results=results)
+        _extract_workspace_archive(workspace_archive, workspace, results=results)
+        await _reconcile_soul_projection(
+            session_factory,
+            workspace,
+            settings.memory,
+            results=results,
         )
-        if proc.returncode != 0:
-            logger.error("tar_extract_failed", stderr=proc.stderr)
-            results.append(("4. Extract workspace", f"FAIL: {proc.stderr[:200]}"))
-            _print_summary(results)
-            sys.exit(1)
-        results.append(("4. Extract workspace", "OK"))
-        logger.info("restore_step_4_done")
-
-        # --- Step 5: reconcile_soul_projection ---
-        session_factory = make_session_factory(engine)
-        evolution = EvolutionEngine(session_factory, workspace, settings.memory)
-        reconcile_changed = False
-        try:
-            await evolution.reconcile_soul_projection()
-            reconcile_changed = True
-        except Exception:
-            logger.exception("reconcile_failed")
-            reconcile_changed = False
-        results.append(("5. reconcile SOUL.md", "OK" if reconcile_changed else "WARN (no-op)"))
-        logger.info("restore_step_5_done", changed=reconcile_changed)
-
-        # --- Step 6: TRUNCATE memory_entries ---
-        async with engine.begin() as conn:
-            await conn.execute(text(f"TRUNCATE {DB_SCHEMA}.memory_entries"))
-        results.append(("6. TRUNCATE memory_entries", "OK"))
-        logger.info("restore_step_6_done")
-
-        # --- Step 7: reindex_all ---
-        indexer = MemoryIndexer(session_factory, settings.memory)
-        entry_count = await indexer.reindex_all()
-        results.append(("7. reindex_all", f"OK ({entry_count} entries)"))
-        logger.info("restore_step_7_done", entries=entry_count)
-
-        # --- Step 8: run_preflight ---
-        report = await run_preflight(settings, engine)
-        if report.passed:
-            results.append(("8. preflight", "PASS"))
-        else:
-            fail_names = [c.name for c in report.checks if c.status.value == "fail"]
-            results.append(("8. preflight", f"FAIL: {', '.join(fail_names)}"))
-        logger.info("restore_step_8_done", passed=report.passed)
+        await _truncate_memory_entries(engine, results=results)
+        await _reindex_memory_entries(session_factory, settings.memory, results=results)
+        report = await _run_restore_preflight(settings, engine, results=results)
     finally:
         await engine.dispose()
 
+    assert report is not None
     _print_summary(results, report=report)
     if not report.passed:
         print(  # noqa: T201

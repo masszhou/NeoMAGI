@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-09T22:51:22+00:00",
+  "generated_at": "2026-03-09T22:54:36+00:00",
   "policy_version": 1,
   "thresholds": {
     "prod": {
@@ -173,28 +173,6 @@
       "fingerprint": "function_lines::scripts/m6_smoke_gemini.py::test_multi_turn_tool_loop::185",
       "symbol": "test_multi_turn_tool_loop",
       "line": 185
-    },
-    {
-      "severity": "block",
-      "group": "scripts",
-      "metric": "function_branches",
-      "path": "scripts/restore.py",
-      "actual": 10,
-      "limit": 6,
-      "fingerprint": "function_branches::scripts/restore.py::run_restore::111",
-      "symbol": "run_restore",
-      "line": 111
-    },
-    {
-      "severity": "block",
-      "group": "scripts",
-      "metric": "function_lines",
-      "path": "scripts/restore.py",
-      "actual": 117,
-      "limit": 50,
-      "fingerprint": "function_lines::scripts/restore.py::run_restore::111",
-      "symbol": "run_restore",
-      "line": 111
     },
     {
       "severity": "block",
