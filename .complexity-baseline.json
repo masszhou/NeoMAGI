@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-09T23:03:46+00:00",
+  "generated_at": "2026-03-09T23:05:43+00:00",
   "policy_version": 1,
   "thresholds": {
     "prod": {
@@ -195,39 +195,6 @@
       "fingerprint": "function_lines::src/channels/telegram.py::TelegramAdapter._handle_dm::99",
       "symbol": "TelegramAdapter._handle_dm",
       "line": 99
-    },
-    {
-      "severity": "block",
-      "group": "prod",
-      "metric": "function_branches",
-      "path": "src/channels/telegram_render.py",
-      "actual": 9,
-      "limit": 6,
-      "fingerprint": "function_branches::src/channels/telegram_render.py::split_message::31",
-      "symbol": "split_message",
-      "line": 31
-    },
-    {
-      "severity": "block",
-      "group": "prod",
-      "metric": "function_branches",
-      "path": "src/channels/telegram_render.py",
-      "actual": 10,
-      "limit": 6,
-      "fingerprint": "function_branches::src/channels/telegram_render.py::_split_code_block::90",
-      "symbol": "_split_code_block",
-      "line": 90
-    },
-    {
-      "severity": "block",
-      "group": "prod",
-      "metric": "function_lines",
-      "path": "src/channels/telegram_render.py",
-      "actual": 51,
-      "limit": 50,
-      "fingerprint": "function_lines::src/channels/telegram_render.py::_split_code_block::90",
-      "symbol": "_split_code_block",
-      "line": 90
     },
     {
       "severity": "block",

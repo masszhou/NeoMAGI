@@ -39,33 +39,10 @@ def split_message(text: str, max_length: int = 4096) -> list[str]:
     if len(text) <= max_length:
         return [text]
 
-    segments = _split_preserving_code_blocks(text)
-
     result: list[str] = []
     buf = ""
-
-    for seg in segments:
-        if buf and len(buf) + len(seg) <= max_length:
-            buf += seg
-            continue
-
-        if buf:
-            result.append(buf)
-            buf = ""
-
-        if len(seg) <= max_length:
-            buf = seg
-            continue
-
-        # Segment too long — split further
-        if seg.startswith("```"):
-            sub = _split_code_block(seg, max_length)
-        else:
-            sub = _split_paragraphs(seg, max_length)
-
-        for s in sub[:-1]:
-            result.append(s)
-        buf = sub[-1] if sub else ""
+    for seg in _split_preserving_code_blocks(text):
+        buf = _consume_segment(seg, buf, result, max_length)
 
     if buf:
         result.append(buf)
@@ -87,57 +64,139 @@ def _split_preserving_code_blocks(text: str) -> list[str]:
     return parts
 
 
-def _split_code_block(block: str, max_length: int) -> list[str]:
-    """Split an oversized code block by lines, re-wrapping with ``` fences."""
+def _consume_segment(seg: str, buf: str, result: list[str], max_length: int) -> str:
+    if _can_append_segment(buf, seg, max_length):
+        return buf + seg
+    if buf:
+        result.append(buf)
+    if len(seg) <= max_length:
+        return seg
+    return _consume_oversized_segment(seg, result, max_length)
+
+
+def _can_append_segment(buf: str, seg: str, max_length: int) -> bool:
+    return bool(buf) and len(buf) + len(seg) <= max_length
+
+
+def _consume_oversized_segment(seg: str, result: list[str], max_length: int) -> str:
+    sub = _split_oversized_segment(seg, max_length)
+    if not sub:
+        return ""
+    result.extend(sub[:-1])
+    return sub[-1]
+
+
+def _split_oversized_segment(seg: str, max_length: int) -> list[str]:
+    if seg.startswith("```"):
+        return _split_code_block(seg, max_length)
+    return _split_paragraphs(seg, max_length)
+
+
+def _hard_cut_chunks(text: str, max_length: int) -> list[str]:
+    return [text[i : i + max_length] for i in range(0, len(text), max_length)]
+
+
+def _parse_code_block(block: str) -> tuple[str, str, str] | None:
     try:
         first_nl = block.index("\n")
     except ValueError:
-        return [block[:max_length]]
+        return None
 
-    header = block[:first_nl]  # e.g. ```python
+    header = block[:first_nl]
     body = block[first_nl + 1 :]
     if body.endswith("```"):
         body = body[:-3]
     body = body.rstrip("\n")
-    footer = "```"
-
     if not body:
-        return [block[:max_length]]
+        return None
+    return header, body, "```"
 
-    body_lines = body.split("\n")
-    overhead = len(header) + len(footer) + 2  # newlines after header / before footer
-    effective = max_length - overhead
 
-    if effective <= 0:
-        return [block[i : i + max_length] for i in range(0, len(block), max_length)]
+def _effective_code_length(header: str, footer: str, max_length: int) -> int:
+    return max_length - len(header) - len(footer) - 2
 
+
+def _wrap_code_lines(header: str, lines: list[str], footer: str) -> str:
+    return header + "\n" + "\n".join(lines) + "\n" + footer
+
+
+def _split_long_code_line(line: str, effective: int, header: str, footer: str) -> list[str]:
+    return [
+        _wrap_code_lines(header, [line[i : i + effective]], footer)
+        for i in range(0, len(line), effective)
+    ]
+
+
+def _flush_code_lines(chunks: list[str], header: str, current: list[str], footer: str) -> None:
+    if current:
+        chunks.append(_wrap_code_lines(header, current, footer))
+
+
+def _append_code_line(
+    line: str,
+    current: list[str],
+    current_len: int,
+    chunks: list[str],
+    *,
+    effective: int,
+    header: str,
+    footer: str,
+) -> tuple[list[str], int]:
+    line_len = len(line) + 1
+    if line_len > effective:
+        _flush_code_lines(chunks, header, current, footer)
+        chunks.extend(_split_long_code_line(line, effective, header, footer))
+        return [], 0
+    if current and current_len + line_len > effective:
+        _flush_code_lines(chunks, header, current, footer)
+        current = []
+        current_len = 0
+    current.append(line)
+    return current, current_len + line_len
+
+
+def _split_wrapped_code_lines(
+    body_lines: list[str],
+    *,
+    effective: int,
+    header: str,
+    footer: str,
+) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
-
     for line in body_lines:
-        line_len = len(line) + 1  # +1 for \n
-        if line_len > effective:
-            # F2: ultra-long single line — flush current, then hard cut
-            if current:
-                chunks.append(header + "\n" + "\n".join(current) + "\n" + footer)
-                current = []
-                current_len = 0
-            for i in range(0, len(line), effective):
-                chunk_line = line[i : i + effective]
-                chunks.append(header + "\n" + chunk_line + "\n" + footer)
-            continue
-        if current_len + line_len > effective and current:
-            chunks.append(header + "\n" + "\n".join(current) + "\n" + footer)
-            current = []
-            current_len = 0
-        current.append(line)
-        current_len += line_len
+        current, current_len = _append_code_line(
+            line,
+            current,
+            current_len,
+            chunks,
+            effective=effective,
+            header=header,
+            footer=footer,
+        )
+    _flush_code_lines(chunks, header, current, footer)
+    return chunks
 
-    if current:
-        chunks.append(header + "\n" + "\n".join(current) + "\n" + footer)
 
-    return chunks or [block[:max_length]]
+def _split_code_block(block: str, max_length: int) -> list[str]:
+    """Split an oversized code block by lines, re-wrapping with ``` fences."""
+    parsed = _parse_code_block(block)
+    if parsed is None:
+        return _hard_cut_chunks(block, max_length)
+
+    header, body, footer = parsed
+    effective = _effective_code_length(header, footer, max_length)
+    if effective <= 0:
+        return _hard_cut_chunks(block, max_length)
+
+    chunks = _split_wrapped_code_lines(
+        body.split("\n"),
+        effective=effective,
+        header=header,
+        footer=footer,
+    )
+    return chunks or _hard_cut_chunks(block, max_length)
 
 
 def _split_paragraphs(text: str, max_length: int) -> list[str]:
