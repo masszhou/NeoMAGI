@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import sqlite3
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from .model import COORD_LABEL, KIND_KEY, CoordError
+from .model import KIND_KEY, CoordError
+from .sqlite_store_support import (
+    build_event_insert_values,
+    build_message_insert_values,
+    event_to_record,
+    gate_to_record,
+    message_to_record,
+    message_update_assignments,
+    milestone_to_record,
+    phase_to_record,
+    role_to_record,
+    split_record_id,
+)
 from .store import CoordRecord
 
 SQLITE_SCHEMA_VERSION = 2
@@ -226,7 +237,7 @@ class SQLiteCoordStore:
         status: str | None = None,
     ) -> CoordRecord:
         conn = self._connect()
-        prefix, local_id = _split_record_id(record_id)
+        prefix, local_id = split_record_id(record_id)
 
         if prefix == "ms":
             return self._update_milestone(conn, local_id, metadata=metadata, status=status)
@@ -296,13 +307,13 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"milestone not found: {milestone_id}")
-        return _milestone_to_record(row)
+        return milestone_to_record(row, SQLITE_SCHEMA_VERSION)
 
     def _list_milestones(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM milestones WHERE milestone_id=?", (milestone,)
         ).fetchall()
-        return [_milestone_to_record(r) for r in rows]
+        return [milestone_to_record(row, SQLITE_SCHEMA_VERSION) for row in rows]
 
     # -- phase --
 
@@ -355,13 +366,13 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"phase not found: {milestone_id}/{phase_id}")
-        return _phase_to_record(row)
+        return phase_to_record(row)
 
     def _list_phases(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM phases WHERE milestone_id=?", (milestone,)
         ).fetchall()
-        return [_phase_to_record(r) for r in rows]
+        return [phase_to_record(row) for row in rows]
 
     # -- gate --
 
@@ -439,13 +450,13 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"gate not found: {milestone_id}/{gate_id}")
-        return _gate_to_record(row)
+        return gate_to_record(row)
 
     def _list_gates(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM gates WHERE milestone_id=?", (milestone,)
         ).fetchall()
-        return [_gate_to_record(r) for r in rows]
+        return [gate_to_record(row) for row in rows]
 
     # -- role (agent) --
 
@@ -505,63 +516,23 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"role not found: {milestone_id}/{role}")
-        return _role_to_record(row)
+        return role_to_record(row)
 
     def _list_roles(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM roles WHERE milestone_id=?", (milestone,)
         ).fetchall()
-        return [_role_to_record(r) for r in rows]
+        return [role_to_record(row) for row in rows]
 
     # -- message --
 
     def _create_message(self, conn: sqlite3.Connection, meta: dict[str, Any]) -> CoordRecord:
-        milestone_id = meta["milestone"]
-        gate_id = meta.get("gate_id", "")
-        phase_id = meta.get("phase", "")
-        command_name = meta.get("command", "")
-        target_role = meta.get("role", "")
-        target_commit = meta.get("target_commit", "")
-        requires_ack = 1 if meta.get("requires_ack", True) else 0
-        effective = 1 if meta.get("effective", False) else 0
-        sent_at = meta.get("sent_at", "")
-        payload = {
-            k: v
-            for k, v in meta.items()
-            if k
-            not in {
-                KIND_KEY,
-                "milestone",
-                "gate_id",
-                "phase",
-                "command",
-                "role",
-                "target_commit",
-                "requires_ack",
-                "effective",
-                "sent_at",
-                "acked_at",
-                "ack_role",
-                "ack_commit",
-            }
-        }
         cur = conn.execute(
             "INSERT INTO messages "
             "(milestone_id, gate_id, phase_id, command_name, target_role, target_commit, "
             " requires_ack, effective, sent_at, payload_json) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                milestone_id,
-                gate_id,
-                phase_id,
-                command_name,
-                target_role,
-                target_commit,
-                requires_ack,
-                effective,
-                sent_at,
-                json.dumps(payload, ensure_ascii=False),
-            ),
+            build_message_insert_values(meta),
         )
         self._commit()
         return self._load_message(conn, cur.lastrowid)
@@ -574,27 +545,14 @@ class SQLiteCoordStore:
         metadata: dict[str, Any] | None = None,
         status: str | None = None,
     ) -> CoordRecord:
-        sets, vals = [], []
-        if metadata:
-            if "effective" in metadata:
-                sets.append("effective=?")
-                vals.append(1 if metadata["effective"] else 0)
-            if "acked_at" in metadata:
-                sets.append("acked_at=?")
-                vals.append(metadata["acked_at"])
-            if "ack_role" in metadata:
-                sets.append("ack_role=?")
-                vals.append(metadata["ack_role"])
-            if "ack_commit" in metadata:
-                sets.append("ack_commit=?")
-                vals.append(metadata["ack_commit"])
-        if status == "closed":
-            sets.append("record_closed=?")
-            vals.append(1)
-        if sets:
-            vals.append(message_id)
+        assignments = message_update_assignments(metadata, status)
+        if assignments:
+            sets = [f"{column}=?" for column, _ in assignments]
+            values = [value for _, value in assignments]
+            values.append(message_id)
             conn.execute(
-                f"UPDATE messages SET {', '.join(sets)} WHERE message_id=?", vals
+                f"UPDATE messages SET {', '.join(sets)} WHERE message_id=?",
+                values,
             )
             self._commit()
         return self._load_message(conn, message_id)
@@ -605,88 +563,24 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"message not found: {message_id}")
-        return _message_to_record(row)
+        return message_to_record(row)
 
     def _list_messages(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM messages WHERE milestone_id=?", (milestone,)
         ).fetchall()
-        return [_message_to_record(r) for r in rows]
+        return [message_to_record(row) for row in rows]
 
     # -- event --
 
     def _create_event(self, conn: sqlite3.Connection, meta: dict[str, Any]) -> CoordRecord:
-        milestone_id = meta["milestone"]
-        event_seq = meta.get("event_seq", 0)
-        phase_id = meta.get("phase", "")
-        gate_id = meta.get("gate", "")
-        role = meta.get("role", "")
-        event_type = meta.get("event", "")
-        status = meta.get("status", "")
-        task = meta.get("task", "")
-        target_commit = meta.get("target_commit", "")
-        result = meta.get("result", "")
-        report_path = meta.get("report_path", "")
-        report_commit = meta.get("report_commit", "")
-        branch = meta.get("branch", "")
-        eta_min = meta.get("eta_min")
-        source_message_id_raw = meta.get("source_message_id", "")
-        source_message_id = None
-        if source_message_id_raw:
-            try:
-                source_message_id = int(str(source_message_id_raw).split(":")[-1])
-            except (ValueError, IndexError):
-                pass
-        created_at = meta.get("ts", "")
-        payload = {
-            k: v
-            for k, v in meta.items()
-            if k
-            not in {
-                KIND_KEY,
-                "milestone",
-                "event_seq",
-                "phase",
-                "gate",
-                "role",
-                "event",
-                "status",
-                "task",
-                "target_commit",
-                "result",
-                "report_path",
-                "report_commit",
-                "branch",
-                "eta_min",
-                "source_message_id",
-                "ts",
-            }
-        }
         cur = conn.execute(
             "INSERT INTO events "
             "(milestone_id, event_seq, phase_id, gate_id, role, event_type, status, task, "
             " target_commit, result, report_path, report_commit, branch, eta_min, "
             " source_message_id, payload_json, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                milestone_id,
-                event_seq,
-                phase_id,
-                gate_id,
-                role,
-                event_type,
-                status,
-                task,
-                target_commit,
-                result,
-                report_path,
-                report_commit,
-                branch,
-                eta_min,
-                source_message_id,
-                json.dumps(payload, ensure_ascii=False),
-                created_at,
-            ),
+            build_event_insert_values(meta),
         )
         self._commit()
         return self._load_event(conn, cur.lastrowid)
@@ -711,222 +605,11 @@ class SQLiteCoordStore:
         ).fetchone()
         if row is None:
             raise CoordError(f"event not found: {event_id}")
-        return _event_to_record(row)
+        return event_to_record(row)
 
     def _list_events(self, conn: sqlite3.Connection, milestone: str) -> list[CoordRecord]:
         rows = conn.execute(
             "SELECT * FROM events WHERE milestone_id=? ORDER BY event_seq",
             (milestone,),
         ).fetchall()
-        return [_event_to_record(r) for r in rows]
-
-
-# -- Record conversion helpers --
-
-
-def _split_record_id(record_id: str) -> tuple[str, str]:
-    parts = record_id.split(":", 1)
-    if len(parts) != 2:
-        raise CoordError(f"invalid record_id format: {record_id}")
-    return parts[0], parts[1]
-
-
-def _milestone_to_record(row: sqlite3.Row) -> CoordRecord:
-    milestone_id = row["milestone_id"]
-    return CoordRecord(
-        record_id=f"ms:{milestone_id}",
-        title=f"Coord milestone {milestone_id}",
-        description=f"NeoMAGI devcoord control plane for {milestone_id}.",
-        record_type="epic",
-        status="open" if row["status"] == "active" else "closed",
-        labels=_coord_labels("milestone", milestone_id),
-        metadata={
-            KIND_KEY: "milestone",
-            "milestone": milestone_id,
-            "run_date": row["run_date"],
-            "schema_version": SQLITE_SCHEMA_VERSION,
-        },
-        created_at=row["created_at"],
-        closed_at=row["closed_at"],
-    )
-
-
-def _phase_to_record(row: sqlite3.Row) -> CoordRecord:
-    milestone_id = row["milestone_id"]
-    phase_id = row["phase_id"]
-    record_status = "closed" if row["phase_state"] == "closed" else "open"
-    return CoordRecord(
-        record_id=f"ph:{milestone_id}|{phase_id}",
-        title=f"Coord phase {phase_id}",
-        description=f"Coordination phase {phase_id} for {milestone_id}.",
-        record_type="task",
-        status=record_status,
-        labels=_coord_labels("phase", milestone_id, phase=phase_id),
-        metadata={
-            KIND_KEY: "phase",
-            "milestone": milestone_id,
-            "phase": phase_id,
-            "phase_state": row["phase_state"],
-            "last_commit": row["last_commit"] or "",
-        },
-    )
-
-
-def _gate_to_record(row: sqlite3.Row) -> CoordRecord:
-    milestone_id = row["milestone_id"]
-    gate_id = row["gate_id"]
-    record_status = "closed" if row["gate_state"] == "closed" else "open"
-    return CoordRecord(
-        record_id=f"gt:{milestone_id}|{gate_id}",
-        title=f"Gate {gate_id}",
-        description=f"Gate {gate_id} for phase {row['phase_id']}.",
-        record_type="task",
-        status=record_status,
-        labels=_coord_labels(
-            "gate", milestone_id, phase=row["phase_id"], role=row["allowed_role"]
-        ),
-        metadata={
-            KIND_KEY: "gate",
-            "milestone": milestone_id,
-            "phase": row["phase_id"],
-            "gate_id": gate_id,
-            "allowed_role": row["allowed_role"],
-            "target_commit": row["target_commit"] or "",
-            "gate_state": row["gate_state"],
-            "result": row["result"] or "",
-            "report_path": row["report_path"] or "",
-            "report_commit": row["report_commit"] or "",
-            "opened_at": row["opened_at"] or "",
-            "closed_at": row["closed_at"] or "",
-        },
-    )
-
-
-def _role_to_record(row: sqlite3.Row) -> CoordRecord:
-    milestone_id = row["milestone_id"]
-    role = row["role"]
-    record_status = "closed" if row["agent_state"] == "closed" else "open"
-    return CoordRecord(
-        record_id=f"rl:{milestone_id}|{role}",
-        title=f"Agent {role}",
-        description=f"Coordination state for {role}.",
-        record_type="task",
-        status=record_status,
-        labels=_coord_labels("agent", milestone_id, role=role),
-        metadata={
-            KIND_KEY: "agent",
-            "milestone": milestone_id,
-            "role": role,
-            "agent_state": row["agent_state"],
-            "action": row["action"] or "",
-            "current_task": row["current_task"] or "",
-            "last_activity": row["last_activity"] or "",
-            "stale_risk": row["stale_risk"] or "none",
-        },
-    )
-
-
-def _message_to_record(row: sqlite3.Row) -> CoordRecord:
-    message_id = row["message_id"]
-    payload = {}
-    if row["payload_json"]:
-        try:
-            payload = json.loads(row["payload_json"])
-        except json.JSONDecodeError:
-            pass
-    metadata = {
-        KIND_KEY: "message",
-        "milestone": row["milestone_id"],
-        "gate_id": row["gate_id"] or "",
-        "phase": row["phase_id"] or "",
-        "command": row["command_name"],
-        "role": row["target_role"],
-        "target_commit": row["target_commit"] or "",
-        "requires_ack": bool(row["requires_ack"]),
-        "effective": bool(row["effective"]),
-        "sent_at": row["sent_at"],
-        "acked_at": row["acked_at"] or "",
-        "ack_role": row["ack_role"] or "",
-        "ack_commit": row["ack_commit"] or "",
-    }
-    metadata.update(payload)
-    record_status = "closed" if row["record_closed"] else "open"
-    return CoordRecord(
-        record_id=f"mg:{message_id}",
-        title=f"{row['command_name']} -> {row['target_role']}",
-        description=payload.get("task", ""),
-        record_type="task",
-        status=record_status,
-        labels=_coord_labels(
-            "message",
-            row["milestone_id"],
-            phase=row["phase_id"],
-            role=row["target_role"],
-        ),
-        metadata=metadata,
-        assignee=row["target_role"],
-    )
-
-
-def _event_to_record(row: sqlite3.Row) -> CoordRecord:
-    event_id = row["event_id"]
-    payload = {}
-    if row["payload_json"]:
-        try:
-            payload = json.loads(row["payload_json"])
-        except json.JSONDecodeError:
-            pass
-    metadata: dict[str, Any] = {
-        KIND_KEY: "event",
-        "milestone": row["milestone_id"],
-        "event_seq": row["event_seq"],
-        "phase": row["phase_id"] or "",
-        "gate": row["gate_id"] or "",
-        "role": row["role"] or "",
-        "event": row["event_type"],
-        "status": row["status"] or "",
-        "task": row["task"],
-        "target_commit": row["target_commit"] or "",
-        "result": row["result"] or "",
-        "report_path": row["report_path"] or "",
-        "report_commit": row["report_commit"] or "",
-        "branch": row["branch"] or "",
-        "eta_min": row["eta_min"],
-        "source_message_id": f"mg:{row['source_message_id']}" if row["source_message_id"] else "",
-        "ts": row["created_at"],
-    }
-    metadata.update(payload)
-    record_status = "closed" if row["record_closed"] else "open"
-    return CoordRecord(
-        record_id=f"ev:{event_id}",
-        title=f"{row['event_type']} {row['role'] or ''} phase {row['phase_id'] or 'na'}",
-        description=row["task"],
-        record_type="task",
-        status=record_status,
-        labels=_coord_labels(
-            "event",
-            row["milestone_id"],
-            phase=row["phase_id"],
-            role=row["role"],
-        ),
-        metadata=metadata,
-    )
-
-
-def _coord_labels(
-    kind: str,
-    milestone: str,
-    *,
-    phase: str | None = None,
-    role: str | None = None,
-) -> tuple[str, ...]:
-    labels = [
-        COORD_LABEL,
-        f"coord-kind-{kind}",
-        f"coord-milestone-{milestone}",
-    ]
-    if phase:
-        labels.append(f"coord-phase-{phase}")
-    if role:
-        labels.append(f"coord-role-{role}")
-    return tuple(sorted(labels))
+        return [event_to_record(row) for row in rows]

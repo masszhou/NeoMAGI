@@ -4,7 +4,6 @@ import argparse
 import json
 import sys
 from collections.abc import Callable, Sequence
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +11,9 @@ if __package__ in {None, ""}:
     _REPO_ROOT = Path(__file__).resolve().parents[2]
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
+    from scripts.devcoord.coord_actions import execute_action
+    from scripts.devcoord.coord_parser import build_parser
     from scripts.devcoord.model import (
-        DEFAULT_ROLES,
         CoordError,
         CoordPaths,
         _git_output,
@@ -25,8 +25,9 @@ if __package__ in {None, ""}:
         MemoryCoordStore,
     )
 else:
+    from .coord_actions import execute_action
+    from .coord_parser import build_parser
     from .model import (
-        DEFAULT_ROLES,
         CoordError,
         CoordPaths,
         _git_output,
@@ -103,221 +104,6 @@ def _normalize_argv(argv: Sequence[str]) -> list[str]:
     if idx < len(result) and result[idx] in _FLAT_ALIAS_MAP:
         return result[:idx] + _FLAT_ALIAS_MAP[result[idx]] + result[idx + 1:]
     return result
-
-
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="NeoMAGI devcoord control plane (SQLite-only, .devcoord/control.db)"
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # --- init (top-level) ---
-    init_p = subparsers.add_parser("init", help="Initialize the shared control plane")
-    init_p.set_defaults(_action="init")
-    init_p.add_argument("--milestone", required=True)
-    init_p.add_argument("--run-date", default=date.today().isoformat())
-    init_p.add_argument("--roles", default=",".join(DEFAULT_ROLES))
-
-    # --- gate group ---
-    gate_p = subparsers.add_parser("gate", help="Gate lifecycle commands")
-    gate_sub = gate_p.add_subparsers(dest="subcommand", required=True)
-
-    gate_open_p = gate_sub.add_parser("open", help="Create a pending GATE_OPEN command")
-    gate_open_p.set_defaults(_action="open-gate")
-    gate_open_p.add_argument("--milestone", required=True)
-    gate_open_p.add_argument("--phase", required=True)
-    gate_open_p.add_argument("--gate", required=True)
-    gate_open_p.add_argument("--allowed-role", required=True)
-    gate_open_p.add_argument("--target-commit", required=True)
-    gate_open_p.add_argument("--task", default="gate open pending")
-
-    gate_review_p = gate_sub.add_parser("review", help="Record a GATE_REVIEW_COMPLETE event")
-    gate_review_p.set_defaults(_action="gate-review")
-    gate_review_p.add_argument("--milestone", required=True)
-    gate_review_p.add_argument("--role", required=True)
-    gate_review_p.add_argument("--phase", required=True)
-    gate_review_p.add_argument("--gate", required=True)
-    gate_review_p.add_argument("--result", required=True)
-    gate_review_p.add_argument("--report-commit", required=True)
-    gate_review_p.add_argument("--report-path", required=True)
-    gate_review_p.add_argument("--task", required=True)
-
-    gate_close_p = gate_sub.add_parser("close", help="Close a gate after review is complete")
-    gate_close_p.set_defaults(_action="gate-close")
-    gate_close_p.add_argument("--milestone", required=True)
-    gate_close_p.add_argument("--phase", required=True)
-    gate_close_p.add_argument("--gate", required=True)
-    gate_close_p.add_argument("--result", required=True)
-    gate_close_p.add_argument("--report-commit", required=True)
-    gate_close_p.add_argument("--report-path", required=True)
-    gate_close_p.add_argument("--task", required=True)
-
-    # --- command group ---
-    cmd_p = subparsers.add_parser("command", help="Command dispatch (ack, send)")
-    cmd_sub = cmd_p.add_subparsers(dest="subcommand", required=True)
-
-    cmd_ack_p = cmd_sub.add_parser("ack", help="ACK a pending command and mark it effective")
-    cmd_ack_p.set_defaults(_action="ack")
-    cmd_ack_p.add_argument("--milestone", required=True)
-    cmd_ack_p.add_argument("--role", required=True)
-    cmd_ack_p.add_argument("--cmd", required=True)
-    cmd_ack_p.add_argument("--gate", required=True)
-    cmd_ack_p.add_argument("--commit", required=True)
-    cmd_ack_p.add_argument("--phase")
-    cmd_ack_p.add_argument("--task", default="ACK command")
-
-    cmd_send_p = cmd_sub.add_parser("send", help="Send a named command (PING, STOP, WAIT, RESUME)")
-    cmd_send_p.set_defaults(_action="send-command")
-    cmd_send_p.add_argument("--name", required=True, choices=["PING", "STOP", "WAIT", "RESUME"])
-    cmd_send_p.add_argument("--milestone", required=True)
-    cmd_send_p.add_argument("--role", required=True)
-    cmd_send_p.add_argument("--phase", required=True)
-    cmd_send_p.add_argument("--gate", required=True)
-    cmd_send_p.add_argument("--task", required=True)
-    cmd_send_p.add_argument("--target-commit")
-
-    # --- event group ---
-    event_p = subparsers.add_parser("event", help="Protocol events")
-    event_sub = event_p.add_subparsers(dest="subcommand", required=True)
-
-    event_hb_p = event_sub.add_parser("heartbeat", help="Record a heartbeat event")
-    event_hb_p.set_defaults(_action="heartbeat")
-    event_hb_p.add_argument("--milestone", required=True)
-    event_hb_p.add_argument("--role", required=True)
-    event_hb_p.add_argument("--phase", required=True)
-    event_hb_p.add_argument("--status", required=True)
-    event_hb_p.add_argument("--task", required=True)
-    event_hb_p.add_argument("--eta-min", type=int)
-    event_hb_p.add_argument("--gate")
-    event_hb_p.add_argument("--target-commit")
-    event_hb_p.add_argument("--branch")
-
-    event_pc_p = event_sub.add_parser("phase-complete", help="Record a PHASE_COMPLETE event")
-    event_pc_p.set_defaults(_action="phase-complete")
-    event_pc_p.add_argument("--milestone", required=True)
-    event_pc_p.add_argument("--role", required=True)
-    event_pc_p.add_argument("--phase", required=True)
-    event_pc_p.add_argument("--gate", required=True)
-    event_pc_p.add_argument("--commit", required=True)
-    event_pc_p.add_argument("--task", required=True)
-    event_pc_p.add_argument("--branch")
-
-    event_rc_p = event_sub.add_parser(
-        "recovery-check", help="Record a RECOVERY_CHECK event after restart or context loss"
-    )
-    event_rc_p.set_defaults(_action="recovery-check")
-    event_rc_p.add_argument("--milestone", required=True)
-    event_rc_p.add_argument("--role", required=True)
-    event_rc_p.add_argument("--last-seen-gate", required=True)
-    event_rc_p.add_argument("--task", required=True)
-
-    event_ss_p = event_sub.add_parser(
-        "state-sync-ok", help="Record a STATE_SYNC_OK response from PM"
-    )
-    event_ss_p.set_defaults(_action="state-sync-ok")
-    event_ss_p.add_argument("--milestone", required=True)
-    event_ss_p.add_argument("--role", required=True)
-    event_ss_p.add_argument("--gate", required=True)
-    event_ss_p.add_argument("--target-commit", required=True)
-    event_ss_p.add_argument("--task", required=True)
-
-    event_sd_p = event_sub.add_parser(
-        "stale-detected", help="Record a suspected stale role after timeout checks"
-    )
-    event_sd_p.set_defaults(_action="stale-detected")
-    event_sd_p.add_argument("--milestone", required=True)
-    event_sd_p.add_argument("--role", required=True)
-    event_sd_p.add_argument("--phase", required=True)
-    event_sd_p.add_argument("--task", required=True)
-    event_sd_p.add_argument("--gate")
-    event_sd_p.add_argument("--target-commit")
-    event_sd_p.add_argument("--ping-count", type=int)
-
-    event_lp_p = event_sub.add_parser(
-        "log-pending", help="Record a LOG_PENDING event when append-first logging is deferred"
-    )
-    event_lp_p.set_defaults(_action="log-pending")
-    event_lp_p.add_argument("--milestone", required=True)
-    event_lp_p.add_argument("--phase", required=True)
-    event_lp_p.add_argument("--task", required=True)
-    event_lp_p.add_argument("--gate")
-    event_lp_p.add_argument("--target-commit")
-
-    event_ui_p = event_sub.add_parser(
-        "unconfirmed-instruction",
-        help="Record an unconfirmed instruction after repeated PING attempts",
-    )
-    event_ui_p.set_defaults(_action="unconfirmed-instruction")
-    event_ui_p.add_argument("--milestone", required=True)
-    event_ui_p.add_argument("--role", required=True)
-    event_ui_p.add_argument("--cmd", required=True)
-    event_ui_p.add_argument("--phase", required=True)
-    event_ui_p.add_argument("--gate", required=True)
-    event_ui_p.add_argument("--task", required=True)
-    event_ui_p.add_argument("--target-commit")
-    event_ui_p.add_argument("--ping-count", type=int)
-
-    # --- projection group ---
-    proj_p = subparsers.add_parser("projection", help="Projection rendering and audit")
-    proj_sub = proj_p.add_subparsers(dest="subcommand", required=True)
-
-    proj_render_p = proj_sub.add_parser("render", help="Render dev_docs projection files")
-    proj_render_p.set_defaults(_action="render")
-    proj_render_p.add_argument("--milestone", required=True)
-
-    proj_audit_p = proj_sub.add_parser(
-        "audit", help="Report append-first / projection reconciliation status"
-    )
-    proj_audit_p.set_defaults(_action="audit")
-    proj_audit_p.add_argument("--milestone", required=True)
-
-    # --- milestone group ---
-    ms_p = subparsers.add_parser("milestone", help="Milestone lifecycle")
-    ms_sub = ms_p.add_subparsers(dest="subcommand", required=True)
-
-    ms_close_p = ms_sub.add_parser(
-        "close", help="Close all control-plane records for a completed milestone"
-    )
-    ms_close_p.set_defaults(_action="milestone-close")
-    ms_close_p.add_argument("--milestone", required=True)
-
-    # --- apply (machine-first, unchanged) ---
-    apply_parser = subparsers.add_parser(
-        "apply",
-        help="Execute a control-plane action from structured JSON payload",
-    )
-    apply_parser.add_argument(
-        "action",
-        choices=(
-            "init",
-            "open-gate",
-            "ack",
-            "heartbeat",
-            "phase-complete",
-            "recovery-check",
-            "state-sync-ok",
-            "ping",
-            "send-command",
-            "unconfirmed-instruction",
-            "log-pending",
-            "stale-detected",
-            "gate-review",
-            "gate-close",
-            "milestone-close",
-            "audit",
-            "render",
-        ),
-    )
-    apply_group = apply_parser.add_mutually_exclusive_group(required=True)
-    apply_group.add_argument("--payload-file")
-    apply_group.add_argument("--payload-stdin", action="store_true")
-
-    return parser
 
 
 # ---------------------------------------------------------------------------
@@ -448,183 +234,6 @@ _PAYLOAD_BUILDERS: dict[str, Callable[[argparse.Namespace], dict[str, Any]]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Action dispatch
-# ---------------------------------------------------------------------------
-
-
-def _execute_action(service: CoordService, command: str, payload: dict[str, Any]) -> None:
-    if command == "init":
-        roles = payload.get("roles", DEFAULT_ROLES)
-        if isinstance(roles, str):
-            roles = _split_csv(roles)
-        service.init_control_plane(
-            _require_payload_str(payload, "milestone"),
-            run_date=_payload_str(payload, "run_date", date.today().isoformat()),
-            roles=tuple(str(role).strip() for role in roles),
-        )
-        return
-    if command == "open-gate":
-        service.open_gate(
-            _require_payload_str(payload, "milestone"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            allowed_role=_require_payload_str(payload, "allowed_role"),
-            target_commit=_require_payload_str(payload, "target_commit"),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "ack":
-        service.ack(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            command=_payload_alias(payload, "command", "cmd"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            commit=_require_payload_str(payload, "commit"),
-            phase=_payload_str(payload, "phase", None),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "heartbeat":
-        eta_min = payload.get("eta_min")
-        if eta_min is not None:
-            eta_min = int(eta_min)
-        service.heartbeat(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            status=_require_payload_str(payload, "status"),
-            task=_require_payload_str(payload, "task"),
-            eta_min=eta_min,
-            gate_id=_payload_str(payload, "gate_id", _payload_str(payload, "gate", None)),
-            target_commit=_payload_str(payload, "target_commit", None),
-            branch=_payload_str(payload, "branch", None),
-        )
-        return
-    if command == "phase-complete":
-        service.phase_complete(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            commit=_require_payload_str(payload, "commit"),
-            task=_require_payload_str(payload, "task"),
-            branch=_payload_str(payload, "branch", None),
-        )
-        return
-    if command == "recovery-check":
-        service.recovery_check(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            last_seen_gate=_require_payload_str(payload, "last_seen_gate"),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "state-sync-ok":
-        service.state_sync_ok(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            target_commit=_require_payload_str(payload, "target_commit"),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "ping":
-        service.ping(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            task=_require_payload_str(payload, "task"),
-            target_commit=_payload_str(payload, "target_commit", None),
-        )
-        return
-    if command == "send-command":
-        service.ping(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            task=_require_payload_str(payload, "task"),
-            target_commit=_payload_str(payload, "target_commit", None),
-            command_name=_require_payload_str(payload, "command_name"),
-        )
-        return
-    if command == "unconfirmed-instruction":
-        ping_count = payload.get("ping_count")
-        if ping_count is not None:
-            ping_count = int(ping_count)
-        service.unconfirmed_instruction(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            command=_payload_alias(payload, "command", "cmd"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            task=_require_payload_str(payload, "task"),
-            target_commit=_payload_str(payload, "target_commit", None),
-            ping_count=ping_count,
-        )
-        return
-    if command == "log-pending":
-        service.log_pending(
-            _require_payload_str(payload, "milestone"),
-            phase=_require_payload_str(payload, "phase"),
-            task=_require_payload_str(payload, "task"),
-            gate_id=_payload_str(payload, "gate_id", _payload_str(payload, "gate", None)),
-            target_commit=_payload_str(payload, "target_commit", None),
-        )
-        return
-    if command == "stale-detected":
-        ping_count = payload.get("ping_count")
-        if ping_count is not None:
-            ping_count = int(ping_count)
-        service.stale_detected(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            task=_require_payload_str(payload, "task"),
-            gate_id=_payload_str(payload, "gate_id", _payload_str(payload, "gate", None)),
-            target_commit=_payload_str(payload, "target_commit", None),
-            ping_count=ping_count,
-        )
-        return
-    if command == "gate-review":
-        service.gate_review(
-            _require_payload_str(payload, "milestone"),
-            role=_require_payload_str(payload, "role"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            result=_require_payload_str(payload, "result"),
-            report_commit=_require_payload_str(payload, "report_commit"),
-            report_path=_require_payload_str(payload, "report_path"),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "gate-close":
-        service.gate_close(
-            _require_payload_str(payload, "milestone"),
-            phase=_require_payload_str(payload, "phase"),
-            gate_id=_payload_alias(payload, "gate_id", "gate"),
-            result=_require_payload_str(payload, "result"),
-            report_commit=_require_payload_str(payload, "report_commit"),
-            report_path=_require_payload_str(payload, "report_path"),
-            task=_require_payload_str(payload, "task"),
-        )
-        return
-    if command == "milestone-close":
-        service.close_milestone(_require_payload_str(payload, "milestone"))
-        return
-    if command == "audit":
-        payload_milestone = _require_payload_str(payload, "milestone")
-        print(json.dumps(service.audit(payload_milestone), ensure_ascii=False))
-        return
-    if command == "render":
-        service.render(_require_payload_str(payload, "milestone"))
-        return
-    raise CoordError(f"unsupported action: {command}")
-
-
-# ---------------------------------------------------------------------------
 # CLI entry
 # ---------------------------------------------------------------------------
 
@@ -649,11 +258,11 @@ def run_cli(
             now_fn=now_fn or _utc_now,
         )
         if args.command == "apply":
-            _execute_action(service, args.action, _load_payload(args))
+            execute_action(service, args.action, _load_payload(args))
         else:
             action = args._action
             payload = _PAYLOAD_BUILDERS[action](args)
-            _execute_action(service, action, payload)
+            execute_action(service, action, payload)
     except CoordError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -686,8 +295,9 @@ def _resolve_paths() -> CoordPaths:
         )
         for marker in legacy_markers:
             if marker.exists():
+                marker_path = marker.parent.relative_to(workspace_root)
                 raise CoordError(
-                    f"Legacy beads control plane detected at {marker.parent.relative_to(workspace_root)}/ "
+                    f"Legacy beads control plane detected at {marker_path}/ "
                     "but no .devcoord/control.db exists yet. To avoid split-brain, "
                     "complete the Stage D cutover checklist "
                     "(see dev_docs/devcoord/sqlite_control_plane_runtime.md §7) "
@@ -739,28 +349,6 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
         raise CoordError("payload must be a JSON object")
     return payload
 
-
-def _require_payload_str(payload: dict[str, Any], key: str) -> str:
-    value = payload.get(key)
-    if value in (None, ""):
-        raise CoordError(f"payload missing required field: {key}")
-    return str(value)
-
-
-def _payload_str(payload: dict[str, Any], key: str, default: str | None) -> str | None:
-    value = payload.get(key, default)
-    if value in (None, ""):
-        return default
-    return str(value)
-
-
-def _payload_alias(payload: dict[str, Any], primary: str, alias: str) -> str:
-    value = payload.get(primary)
-    if value in (None, ""):
-        value = payload.get(alias)
-    if value in (None, ""):
-        raise CoordError(f"payload missing required field: {primary}")
-    return str(value)
 
 if __name__ == "__main__":
     raise SystemExit(main())
