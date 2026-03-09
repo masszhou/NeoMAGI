@@ -47,16 +47,17 @@ bd update <issue-id> --status done
 ### After modifying issue data
 
 ```bash
-# Refresh JSONL backup
+# Refresh JSONL backup (auto-creates a local backup commit)
 just beads-backup          # or: bd backup --force
 
 # Check backup status
 just beads-backup-status   # or: bd backup status
 
-# Commit and push via normal Git
-git add .beads/backup/
-git commit -m "bd: backup <date>"
+# Push the backup commit to remote
 git push
+
+# Fallback: if bd did not auto-commit, do it manually:
+# git add .beads/backup/ && git commit -m "bd: backup <date>" && git push
 ```
 
 ### Restoring from a fresh clone (no `.beads/dolt/`)

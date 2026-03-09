@@ -274,7 +274,7 @@ bd close bd-42 --reason "Completed" --json
 bd 的 issue 数据存于本地 `.beads/dolt/`（Dolt 运行时，不进 Git）。远端恢复工件以 `.beads/backup/*.jsonl` 为准（ADR 0052）：
 
 - Each write auto-commits to local Dolt history
-- 若本轮改动包含 beads / bd issue 数据，执行 `just beads-backup` 刷新备份，并把 `.beads/backup/*` 一并 `git add / commit / push`
+- 若本轮改动包含 beads / bd issue 数据，执行 `just beads-backup`（自动创建 backup commit），然后 `git push`
 - devcoord control-plane 写入不再触发 beads backup 要求（SSOT 已迁至 `.devcoord/control.db`）
 - 纯代码 / 文档 / 测试改动、且未改 beads 数据时，不需要运行 beads backup
 - 不要直接运行 `bd dolt pull` / `bd dolt push` / `bd sync`（Dolt remote 已废弃）
@@ -307,9 +307,7 @@ For more details, see README.md and docs/QUICKSTART.md.
    ```bash
    git pull --rebase
    # If this session changed beads / bd issue data:
-   just beads-backup
-   git add .beads/backup/
-   git commit -m "bd: backup <date>"
+   just beads-backup   # auto-creates a local backup commit
    git push
    git status  # MUST show "up to date with origin"
    ```

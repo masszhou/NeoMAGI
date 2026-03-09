@@ -105,7 +105,7 @@ neomagi/
 - 不确定的设计决策，先写 TODO 注释标记，不要自行决定
 - 常用开发任务优先通过 `just` 执行，避免散落命令；devcoord 控制面协议写操作除外，统一直接调用 `uv run python scripts/devcoord/coord.py`
 - devcoord 协作控制的 append-first 落点是 `.devcoord/control.db`；`dev_docs/logs/phase1/*`、`dev_docs/logs/phase2/*` 和 `dev_docs/progress/project_progress.md` 只作为 `render` 生成的 projection，不直接手写。
-- beads 备份统一使用 `just beads-backup`（等价于 `bd backup --force`），然后把 `.beads/backup/*` 一并 `git add / commit / push`。不要使用 `bd sync` / `bd dolt pull` / `bd dolt push` / `just beads-pull` / `just beads-push`（Dolt remote 已废弃，见 ADR 0052）。
+- beads 备份统一使用 `just beads-backup`（等价于 `bd backup --force`），它会自动创建本地 backup commit，之后正常 `git push` 即可。若某次 `bd` 版本未自动生成 backup commit，手工 `git add .beads/backup/ && git commit -m "bd: backup <date>"`。不要使用 `bd sync` / `bd dolt pull` / `bd dolt push` / `just beads-pull` / `just beads-push`（Dolt remote 已废弃，见 ADR 0052）。
 - 仅当本轮实际修改了 beads / bd issue 数据时，才需要运行 beads backup；devcoord control-plane 写入不再触发 beads backup 要求（SSOT 已迁至 `.devcoord/control.db`）；纯代码 / 文档 / 测试改动无需运行。
 - beads 恢复路径：`bd init && bd backup restore`。
 

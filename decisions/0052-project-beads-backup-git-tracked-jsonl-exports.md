@@ -67,4 +67,10 @@
   - `bd backup --force`
   - `bd backup status`
   - `bd init && bd backup restore --dry-run`
-- 这里的“远端备份”仅指通过主仓库 Git 保存恢复工件，不意味着 `beads` 变成产品运行时记忆层，也不意味着要为跨项目可见性新增抽象。
+- 这里的”远端备份”仅指通过主仓库 Git 保存恢复工件，不意味着 `beads` 变成产品运行时记忆层，也不意味着要为跨项目可见性新增抽象。
+
+## 实现注记（2026-03-09）
+
+- 当前 `bd` 版本在 `bd backup --force` 时会自动创建本地 backup commit（提交消息格式 `bd: backup <timestamp>`）。项目侧只需在 backup 后执行普通 `git push` 同步该提交。
+- 若未来 `bd` 版本不再自动提交，操作者需手工 `git add .beads/backup/ && git commit`。
+- 恢复演练已完成并记录：`dev_docs/logs/phase2/p2-beads-migration_restore-drill_2026-03-09.md`。
