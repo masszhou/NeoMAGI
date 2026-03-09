@@ -57,7 +57,7 @@ beads-pull:
 beads-push:
     @echo "DEPRECATED: 'just beads-push' is retired. Use 'just beads-backup' instead."
     @echo "Delegating to 'just beads-backup'..."
-    @echo "Remember to also: git add .beads/backup/ && git commit && git push"
+    @echo "Backup auto-creates a local commit. Just run 'git push' afterwards."
     @echo "See ADR 0052 for details."
     bd backup --force
 
