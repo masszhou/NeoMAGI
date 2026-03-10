@@ -212,6 +212,7 @@ dev_docs/prompts/
 dev_docs/reports/*.json
 tmp/
 .beads.bak-*/
+postgres-data/
 
 # Workspace (user-specific agent files)
 workspace/
