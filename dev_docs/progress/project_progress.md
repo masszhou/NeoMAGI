@@ -407,3 +407,12 @@
 - Validation: Phase A 在干净环境、无 `.beads/dolt/` 前提下完成 118/118/118 三方计数一致恢复；Phase B 验证 `bd create/update/close` 后 `bd backup --force` 生成 post-mutation backup commit `776bd0e`，其中 `issues.jsonl` +1、`events.jsonl` +3；workflow review findings 全部闭环
 - Next: 稳定运行 2 周后再评估是否推进 `no-db: true`
 - Risk: 当前 workflow 依赖现版 `bd backup --force` auto-commit 语义；若未来 `bd` 行为变更，已文档化手工 `git add/commit` fallback
+
+## 2026-03-10 (local) | Complexity Batch Sweep Closeout
+- Status: done
+- Done: `P2 Complexity Batch Hotspot Cleanup` 已完成并收口 — 计划 `dev_docs/plans/phase2/p2-complexity_batch-hotspot-cleanup_2026-03-10.md` 中列出的 31 个 block 文件全部清零，仓库当前 `block_findings=0`，`.complexity-baseline.json` 已刷新为空基线；后续 review 暴露的 compaction fail-open 回归已修复，复杂度治理 epic `NeoMAGI-ih2` 与执行任务 `NeoMAGI-aaa` 已在 beads 中关闭
+- Track: 并行治理 / 质量收敛轨；不属于 `P2-M*` 产品里程碑序列
+- Evidence: 计划 `dev_docs/plans/phase2/p2-complexity_batch-hotspot-cleanup_2026-03-10.md`；关键提交 `c239f7f` / `e984c77` / `cc6bd93` / `d1da446` / `1cec1cf` / `dd04e88`；beads backup commit `dd6662d`
+- Validation: `just lint` 通过；`just test` 1033 passed；`uv run python -m src.infra.complexity_guard report --json` 显示 `block_findings=[]`；`uv run python -m src.infra.complexity_guard check` 显示 `Regressions: 0`
+- Next: 将复杂度治理从 block 清债切换到 target 级持续收敛，按 ratchet 规则逐步压低 `scripts/`、`src/` 与 `tests/` 的 target findings
+- Risk: 当前全量测试仍有 3 条既存 `RuntimeWarning: coroutine ... was never awaited`，不阻塞本轮 closeout，但应单独治理
