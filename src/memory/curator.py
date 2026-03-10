@@ -92,7 +92,9 @@ class MemoryCurator:
             return CurationResult(status="no_changes")
 
         memory_md_path = workspace_path / "MEMORY.md"
-        current_curated = memory_md_path.read_text(encoding="utf-8").strip() if memory_md_path.is_file() else ""
+        current_curated = (
+            memory_md_path.read_text(encoding="utf-8").strip() if memory_md_path.is_file() else ""
+        )
 
         proposal = await self.propose_updates(daily_content, current_curated)
         if not (proposal.new_content and proposal.new_content.strip()):
