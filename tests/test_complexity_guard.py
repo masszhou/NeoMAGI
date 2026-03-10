@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
 from src.infra.complexity_guard import (
+    DEFAULT_OVERRIDES_PATH,
     Finding,
+    _collect_function_metrics,
     analyze_paths,
     build_baseline_payload,
     classify_path,
     detect_regressions,
+    load_file_line_overrides,
 )
 
 
@@ -34,6 +38,80 @@ def test_analyze_paths_reports_file_and_function_findings(tmp_path: Path) -> Non
     assert ("function_branches", "branchy") in block_metrics
     assert ("function_nesting", "deep") in block_metrics
     assert ("file_lines", None) in target_metrics
+
+
+def test_load_file_line_overrides_reads_repo_file(tmp_path: Path) -> None:
+    (tmp_path / DEFAULT_OVERRIDES_PATH).write_text(
+        json.dumps({"skip_file_lines": ["src/frontend/**/*.tsx", "**/*.generated.ts"]}),
+        encoding="utf-8",
+    )
+
+    assert load_file_line_overrides(tmp_path) == (
+        "src/frontend/**/*.tsx",
+        "**/*.generated.ts",
+    )
+
+
+def test_analyze_paths_skips_whitelisted_file_lines_only(tmp_path: Path) -> None:
+    source_path = tmp_path / "src" / "sample.py"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(_python_source(520), encoding="utf-8")
+
+    report = analyze_paths(
+        [Path("src/sample.py")],
+        tmp_path,
+        skip_file_lines=("src/*.py",),
+    )
+
+    target_metrics = {(item["metric"], item.get("symbol")) for item in report["target_findings"]}
+    block_metrics = {(item["metric"], item.get("symbol")) for item in report["block_findings"]}
+
+    assert ("file_lines", None) not in target_metrics
+    assert ("function_lines", "too_long") in block_metrics
+    assert ("function_branches", "branchy") in block_metrics
+    assert ("function_nesting", "deep") in block_metrics
+
+
+def test_analyze_paths_matches_frontend_glob_override(tmp_path: Path) -> None:
+    source_path = tmp_path / "src" / "frontend" / "src" / "components" / "BigView.tsx"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        "\n".join("export const value = 1;" for _ in range(900)),
+        encoding="utf-8",
+    )
+
+    report = analyze_paths(
+        [Path("src/frontend/src/components/BigView.tsx")],
+        tmp_path,
+        skip_file_lines=("src/frontend/**/*.tsx",),
+    )
+
+    assert report["files_scanned"] == 1
+    assert report["target_findings"] == []
+    assert report["block_findings"] == []
+
+
+def test_collect_function_metrics_ignores_nested_function_branches() -> None:
+    module = ast.parse(
+        "\n".join(
+            [
+                "def outer() -> int:",
+                "    def inner(value: int) -> int:",
+                "        if value > 0:",
+                "            if value > 1:",
+                "                return value",
+                "        return 0",
+                "    return inner(1)",
+            ]
+        )
+    )
+
+    metrics = {item.qualname: item for item in _collect_function_metrics(module)}
+
+    assert metrics["outer"].branches == 0
+    assert metrics["outer"].nesting == 0
+    assert metrics["outer.inner"].branches == 2
+    assert metrics["outer.inner"].nesting == 2
 
 
 def test_detect_regressions_flags_new_and_worsened_findings() -> None:

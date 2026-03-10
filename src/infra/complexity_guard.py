@@ -10,12 +10,15 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
 CODE_GLOBS = ("*.py", "*.ts", "*.tsx", "*.js", "*.jsx")
+CODE_SUFFIXES = frozenset({".py", ".ts", ".tsx", ".js", ".jsx"})
 BRANCH_NODES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.Match)
 DEFAULT_BASELINE_PATH = ".complexity-baseline.json"
+DEFAULT_OVERRIDES_PATH = ".complexity-overrides.json"
 TEST_FILE_SUFFIXES = (
     ".test.ts",
     ".test.tsx",
@@ -154,7 +157,7 @@ def tracked_code_paths(workspace_root: Path) -> list[Path]:
     paths: list[Path] = []
     for line in result.stdout.splitlines():
         relpath = Path(line.strip())
-        if relpath.suffix not in {".py", ".ts", ".tsx", ".js", ".jsx"}:
+        if relpath.suffix not in CODE_SUFFIXES:
             continue
         if classify_path(relpath) is None:
             continue
@@ -162,7 +165,26 @@ def tracked_code_paths(workspace_root: Path) -> list[Path]:
     return sorted(paths)
 
 
-def analyze_paths(paths: Sequence[Path], workspace_root: Path) -> dict[str, Any]:
+def load_file_line_overrides(workspace_root: Path) -> tuple[str, ...]:
+    overrides_path = workspace_root / DEFAULT_OVERRIDES_PATH
+    if not overrides_path.is_file():
+        return ()
+
+    payload = json.loads(overrides_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{DEFAULT_OVERRIDES_PATH} must contain a JSON object")
+    patterns = payload.get("skip_file_lines", [])
+    if not isinstance(patterns, list) or not all(isinstance(item, str) for item in patterns):
+        raise ValueError("skip_file_lines must be an array of strings")
+    return tuple(patterns)
+
+
+def analyze_paths(
+    paths: Sequence[Path],
+    workspace_root: Path,
+    *,
+    skip_file_lines: Sequence[str] = (),
+) -> dict[str, Any]:
     findings: list[Finding] = []
     files_by_group = {group: 0 for group in GROUP_THRESHOLDS}
 
@@ -172,7 +194,15 @@ def analyze_paths(paths: Sequence[Path], workspace_root: Path) -> dict[str, Any]
             continue
         thresholds = GROUP_THRESHOLDS[group]
         files_by_group[group] += 1
-        findings.extend(_file_findings(relpath, workspace_root, group, thresholds))
+        findings.extend(
+            _file_findings(
+                relpath,
+                workspace_root,
+                group,
+                thresholds,
+                skip_file_lines=skip_file_lines,
+            )
+        )
         if relpath.suffix == ".py":
             findings.extend(_python_findings(relpath, workspace_root, group, thresholds))
 
@@ -228,7 +258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     workspace_root = Path(args.workspace_root).resolve()
     paths = tracked_code_paths(workspace_root)
-    report = analyze_paths(paths, workspace_root)
+    skip_file_lines = load_file_line_overrides(workspace_root)
+    report = analyze_paths(paths, workspace_root, skip_file_lines=skip_file_lines)
 
     if args.command == "report":
         _emit_report(report, as_json=args.json)
@@ -295,8 +326,13 @@ def _file_findings(
     workspace_root: Path,
     group: str,
     thresholds: GroupThresholds,
+    *,
+    skip_file_lines: Sequence[str] = (),
 ) -> list[Finding]:
-    line_count = sum(1 for _ in (workspace_root / relpath).open(encoding="utf-8"))
+    if _matches_path_pattern(relpath, skip_file_lines):
+        return []
+    with (workspace_root / relpath).open(encoding="utf-8") as handle:
+        line_count = sum(1 for _ in handle)
     finding = _metric_finding(
         group=group,
         metric="file_lines",
@@ -306,6 +342,11 @@ def _file_findings(
         block_limit=thresholds.file_block,
     )
     return [finding] if finding is not None else []
+
+
+def _matches_path_pattern(relpath: Path, patterns: Sequence[str]) -> bool:
+    path = relpath.as_posix()
+    return any(fnmatchcase(path, pattern) for pattern in patterns)
 
 
 def _python_findings(
@@ -454,6 +495,9 @@ def _body_metrics(statements: Sequence[ast.stmt]) -> tuple[int, int]:
 
 
 def _branch_metrics(node: ast.AST, depth: int = 0) -> tuple[int, int]:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return 0, depth
+
     branches = 0
     max_depth = depth
     next_depth = depth
@@ -462,6 +506,8 @@ def _branch_metrics(node: ast.AST, depth: int = 0) -> tuple[int, int]:
         next_depth = depth + 1
         max_depth = max(max_depth, next_depth)
     for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
         child_branches, child_depth = _branch_metrics(child, next_depth)
         branches += child_branches
         max_depth = max(max_depth, child_depth)

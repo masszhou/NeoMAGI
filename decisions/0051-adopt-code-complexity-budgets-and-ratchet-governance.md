@@ -20,6 +20,12 @@
   - `.complexity-baseline.json` 记录当前 block 级存量债务。
   - `just lint` 执行 `uv run python -m src.infra.complexity_guard check`，只阻止“新增或恶化”的 block 级问题。
   - `just complexity-report` 用于查看全仓 target/block 快照，`just complexity-baseline` 用于在完成一轮明确的治理后下调 baseline。
+- `src.infra.complexity_guard` 的扫描范围保持固定：
+  - 只扫描 git tracked 的 `src/`、`scripts/` 与测试路径下的 `*.py/*.ts/*.tsx/*.js/*.jsx`。
+  - `alembic/versions/` 与其他路径默认忽略，不通过 override 文件扩展扫描范围。
+- `.complexity-overrides.json` 只提供局部覆盖，而不是 inclusion list：
+  - 当前仅支持 `skip_file_lines`，按 repo 相对路径跳过 `file_lines` 检查。
+  - 它不会关闭 Python 的 `function_lines` / `function_branches` / `function_nesting` 检查。
 - 当前自动检查覆盖范围分阶段落地：
   - 全部 tracked `*.py/*.ts/*.tsx/*.js/*.jsx` 文件都检查 file lines。
   - Python 文件额外检查 function lines / branches / nesting。

@@ -154,5 +154,7 @@ neomagi/
 - `tests/` 文件级阈值放宽到 `<= 1200`，但函数级红线仍按 `50 / 3 / 6` 执行；`alembic/versions/` 不纳入自动文件长度治理。
 - 采用 ratchet 治理：`.complexity-baseline.json` 记录当前 block 级存量债务，`just lint` 只阻止新增或恶化的 block 问题，不要求一次性清零历史债。
 - 当前自动检查覆盖所有 tracked `*.py/*.ts/*.tsx/*.js/*.jsx` 的文件长度，以及 Python 的函数长度/分支/嵌套；前端函数级自动化后续补齐。
+- `src.infra.complexity_guard` 的扫描范围固定为 git tracked 的 `src/`、`scripts/` 与测试路径；`alembic/versions/` 和其他路径默认忽略，`.complexity-overrides.json` 不负责扩展扫描范围。
+- `.complexity-overrides.json` 只做局部覆盖；当前仅支持 `skip_file_lines`，按 repo 相对路径跳过 `file_lines` 检查，不关闭 Python 的函数级检查。
 - 常用命令：`just complexity-report` 查看全仓快照，`just complexity-baseline` 在完成一轮明确治理后刷新 baseline。
 - 任何触碰现有超线热点的改动，默认要求“至少不再变坏”；若顺手能拆一层，优先拆分而不是继续堆叠。
