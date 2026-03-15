@@ -12,6 +12,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/.venv/bin/python \"$CLAUDE_PROJECT_DIR/.claude/hooks/langfuse_hook.py\""
+          }
+        ]
+      }
     ]
   }
 }
