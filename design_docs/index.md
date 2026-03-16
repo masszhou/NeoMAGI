@@ -19,34 +19,38 @@
 2. `design_docs/phase2/index.md`
    - Phase 2 技术架构索引：`P2-M1 ~ P2-M4` 的 architecture 文档入口。
 
-3. `design_docs/modules.md`
+3. `design_docs/GLOSSARY.md`
+   - 轻量级 Domain Ontology：核心术语、别名、定义与关系。
+
+4. `design_docs/modules.md`
    - 当前系统模块边界、平台基线与主要实现入口。
 
-4. `design_docs/system_prompt.md`
+5. `design_docs/system_prompt.md`
    - 运行时 prompt 文件加载顺序、优先级与 workspace context 分层。
 
-5. `design_docs/memory_architecture_v2.md`
+6. `design_docs/memory_architecture_v2.md`
    - 长期 memory 原则：workspace 真源、retrieval plane、kernel / applications 分层。
 
-6. `design_docs/procedure_runtime.md`
+7. `design_docs/procedure_runtime.md`
    - Phase 2 方向的 deterministic procedure / runtime control 正式设计文档。
 
-7. `design_docs/skill_objects_runtime.md`
+8. `design_docs/skill_objects_runtime.md`
    - `2+1` 中第二层：skill object 的结构、程序化投影与学习正式设计文档。
 
-8. `design_docs/devcoord_sqlite_control_plane.md`
+9. `design_docs/devcoord_sqlite_control_plane.md`
    - `devcoord` 从 `beads` 解耦后的 SQLite control-plane store 与精简命令面设计。
 
-9. `design_docs/devcoord_sqlite_control_plane_product.md`
+10. `design_docs/devcoord_sqlite_control_plane_product.md`
    - `devcoord` SQLite control plane 的产品口径说明：为什么存在、怎么理解、和 `bd` / PostgreSQL / `dev_docs` 的边界。
 
-10. `design_docs/phase1/index.md`
+11. `design_docs/phase1/index.md`
    - 只有在需要 Phase 1 历史设计细节时再进入。
 
 ## 3. 当前默认激活文档
 
 - `design_docs/phase2/roadmap_milestones_v1.md`
 - `design_docs/phase2/index.md`
+- `design_docs/GLOSSARY.md`
 - `design_docs/modules.md`
 - `design_docs/system_prompt.md`
 - `design_docs/memory_architecture_v2.md`
