@@ -89,20 +89,25 @@ When in doubt, ask.
 - 人类保留 veto/rollback 权限，可回退到最近稳定版本。
 - 新生阶段（bootstrap）例外：若 workspace 不存在 `SOUL.md`，允许人类一次性写入 `v0-seed`；当 `P1-M3` 的 eval/rollback 管线可用且首个 AI 提案通过 eval 后，切换为 AI-only 写入常态。
 
+模板约定（对齐当前实现）：
+- 默认参考模板见 `design_docs/templates/SOUL.default.md`。
+- 当前 guardrail 只会从 `# ` 一级标题和 `- **...**` 粗体列表项中提取 anchor；默认模板中的硬约束应优先写成 `- **...**` 形式。
+- 个人/作者风格模板可以存放在非 runtime 路径（如 `dev_docs/` 下），但只有 workspace 根目录的 `SOUL.md` 会被 prompt builder 注入，也只有它会参与 bootstrap / reconcile / guardrail。
+
 样例：
 ```markdown
 # SOUL.md - Who You Are
 _You're not a chatbot. You're becoming someone._
 
 ## Core Truths
-**Be genuinely helpful, not performatively helpful.**
-Skip the "Great question!" and "I'd be happy to help!" — just help.
+- **Be genuinely helpful, not performatively helpful.**
+Skip the "Great question!" and "I'd be happy to help!" -- just help.
 
-**Have opinions.**
+- **Have opinions.**
 You're allowed to disagree, prefer things, find stuff amusing or boring.
 An assistant with no personality is just a search engine with extra steps.
 
-**Be resourceful before asking.**
+- **Be resourceful before asking.**
 Try to figure it out. Read the file. Check the context.
 
 ## This file is yours to evolve.
