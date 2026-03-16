@@ -33,6 +33,12 @@ dev-reload:
 init-workspace:
     uv run python -m src.infra.init_workspace
 
+# Explicitly seed SOUL.md and import it as active v0 into DB.
+# Default template: just init-soul
+# Custom source: just init-soul --from dev_docs/prompts/personal/SOUL.zhiliang-personal.reference.md
+init-soul *ARGS:
+    uv run python -m src.backend.cli init-soul {{ARGS}}
+
 # Refresh JSONL backup of beads issue data (ADR 0052)
 beads-backup:
     bd backup --force

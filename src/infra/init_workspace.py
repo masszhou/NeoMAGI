@@ -33,16 +33,6 @@ Don't exfiltrate private data. Ever.
 Don't run destructive commands without asking.
 When in doubt, ask.
 """,
-    "SOUL.md": """\
-# SOUL.md — Who You Are
-# Persona, philosophy, and values.
-# This shapes who the agent is, not what it does.
-
-## Core Truths
-Be genuinely helpful, not performatively helpful.
-Have opinions. An assistant with no personality is just a search engine.
-Be resourceful before asking.
-""",
     "USER.md": """\
 # USER.md
 # User preferences and context.
@@ -71,7 +61,12 @@ role: Personal AI Assistant
 
 
 def init_workspace() -> None:
-    """Create workspace directory and template files. Idempotent: existing files not overwritten."""
+    """Create workspace directory and template files.
+
+    Idempotent: existing files not overwritten.
+    SOUL.md is intentionally excluded. Use ``just init-soul`` explicitly so
+    the initial persona seed is always a deliberate action.
+    """
     WORKSPACE_DIR.mkdir(exist_ok=True)
     MEMORY_DIR.mkdir(exist_ok=True)
     logger.info("workspace_dirs_ensured", workspace=str(WORKSPACE_DIR), memory=str(MEMORY_DIR))
@@ -83,6 +78,13 @@ def init_workspace() -> None:
         else:
             filepath.write_text(content, encoding="utf-8")
             logger.info("workspace_template_created", file=str(filepath))
+
+    logger.info("workspace_soul_init_pending", file=str(WORKSPACE_DIR / "SOUL.md"))
+    print(  # noqa: T201 - explicit operator guidance for first-time setup
+        "SOUL.md was intentionally not created. "
+        "Run 'just init-soul' to seed the default persona, "
+        "or 'just init-soul --from <path>' to seed a custom one."
+    )
 
 
 if __name__ == "__main__":

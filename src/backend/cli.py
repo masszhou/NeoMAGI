@@ -2,6 +2,7 @@
 
 Usage:
   python -m src.backend.cli doctor [--deep]
+  python -m src.backend.cli init-soul [--from path]
   python -m src.backend.cli reindex [--scope main]
   python -m src.backend.cli reconcile
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
 import structlog
 
@@ -38,6 +40,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--scope",
         default="main",
         help="Scope key for reindex (default: main)",
+    )
+
+    init_soul_parser = sub.add_parser(
+        "init-soul",
+        help="Explicitly seed SOUL.md from the default template or a custom path",
+    )
+    init_soul_parser.add_argument(
+        "--from",
+        dest="source",
+        help="Optional source file to copy into workspace/SOUL.md before bootstrap",
     )
 
     sub.add_parser("reconcile", help="Reconcile SOUL.md projection from DB")
@@ -123,6 +135,158 @@ async def _run_reconcile() -> int:
     return 0
 
 
+def _default_soul_template_path() -> Path:
+    """Return the repo-local default SOUL template path."""
+    return Path(__file__).resolve().parents[2] / "design_docs" / "templates" / "SOUL.default.md"
+
+
+def _resolve_soul_source_path(source: str | None) -> Path:
+    """Resolve explicit init-soul source path."""
+    if source:
+        raw = Path(source).expanduser()
+        return (raw if raw.is_absolute() else (Path.cwd() / raw)).resolve()
+    return _default_soul_template_path().resolve()
+
+
+def _prepare_soul_seed_file(
+    soul_path: Path,
+    source_content: str,
+    *,
+    source_requested: bool,
+) -> tuple[bool, str]:
+    """Ensure workspace/SOUL.md exists with safe, explicit seed semantics."""
+    if soul_path.is_file():
+        existing_content = soul_path.read_text(encoding="utf-8")
+        if existing_content.strip():
+            if source_requested and existing_content != source_content:
+                raise ValueError(
+                    "workspace/SOUL.md already exists and differs from the requested source"
+                )
+            if source_requested:
+                return False, "workspace/SOUL.md already matches the requested source."
+            return False, "Using existing workspace/SOUL.md as the explicit seed."
+
+    soul_path.write_text(source_content, encoding="utf-8")
+    return True, f"Wrote {soul_path} from the selected source."
+
+
+def _print_init_soul_banner() -> None:
+    """Print operator-facing disclosure before explicit SOUL bootstrap."""
+    print("init-soul: explicit SOUL bootstrap")  # noqa: T201
+    print(  # noqa: T201
+        "This command seeds workspace/SOUL.md once and imports it into the database."
+    )
+    print(  # noqa: T201
+        "After initialization, the database becomes the truth source; "
+        "future changes should use soul_propose, soul_rollback, or just reconcile."
+    )
+
+
+def _load_soul_source(source: str | None) -> tuple[Path, str]:
+    """Load init-soul source path and content, or raise ValueError."""
+    source_path = _resolve_soul_source_path(source)
+    if not source_path.is_file():
+        raise ValueError(f"source file not found: {source_path}")
+
+    source_content = source_path.read_text(encoding="utf-8")
+    if not source_content.strip():
+        raise ValueError(f"source file is empty: {source_path}")
+    return source_path, source_content
+
+
+async def _check_init_soul_allowed(evolution) -> bool:
+    """Refuse init-soul when DB already has an active SOUL version."""
+    current = await evolution.get_current_version()
+    if current is None:
+        return True
+
+    print(  # noqa: T201
+        f"init-soul refused: database already has active SOUL version v{current.version}."
+    )
+    print("DB remains the truth source. Use soul_propose or soul_rollback instead.")  # noqa: T201
+    return False
+
+
+async def _bootstrap_init_soul(
+    evolution,
+    workspace_dir: Path,
+    soul_path: Path,
+    source: str | None,
+    source_path: Path,
+    source_content: str,
+) -> int:
+    """Write/import the initial SOUL seed into workspace and DB."""
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        wrote_file, note = _prepare_soul_seed_file(
+            soul_path,
+            source_content,
+            source_requested=source is not None,
+        )
+    except ValueError as exc:
+        print(f"init-soul refused: {exc}", file=sys.stderr)  # noqa: T201
+        print("Review or remove workspace/SOUL.md first, then rerun init-soul.")  # noqa: T201
+        return 1
+
+    print(f"Seed source: {source_path}")  # noqa: T201
+    print(f"Target file: {soul_path}")  # noqa: T201
+    print(note)  # noqa: T201
+
+    await evolution.ensure_bootstrap(workspace_dir)
+    current = await evolution.get_current_version()
+    if current is None:
+        print("init-soul failed: bootstrap did not create an active SOUL version.", file=sys.stderr)  # noqa: T201
+        return 1
+
+    logger.info(
+        "init_soul_done",
+        version=current.version,
+        source=str(source_path),
+        wrote_file=wrote_file,
+    )
+    print(f"init-soul complete: active SOUL version v{current.version}")  # noqa: T201
+    return 0
+
+
+async def _run_init_soul(source: str | None) -> int:
+    """Explicitly seed workspace/SOUL.md and import it as the initial DB version."""
+    from src.config.settings import get_settings
+    from src.memory.evolution import EvolutionEngine
+    from src.session.database import create_db_engine, make_session_factory
+
+    _print_init_soul_banner()
+
+    settings = get_settings()
+    workspace_dir = settings.workspace_dir.resolve()
+    soul_path = workspace_dir / "SOUL.md"
+    try:
+        source_path, source_content = _load_soul_source(source)
+    except ValueError as exc:
+        print(f"init-soul failed: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+
+    engine = await create_db_engine(settings.database)
+    try:
+        session_factory = make_session_factory(engine)
+        evolution = EvolutionEngine(session_factory, workspace_dir, settings.memory)
+        if not await _check_init_soul_allowed(evolution):
+            return 1
+        return await _bootstrap_init_soul(
+            evolution,
+            workspace_dir,
+            soul_path,
+            source,
+            source_path,
+            source_content,
+        )
+    except Exception:
+        logger.exception("init_soul_failed", source=str(source_path))
+        print("init-soul failed -- see logs for details", file=sys.stderr)  # noqa: T201
+        return 1
+    finally:
+        await engine.dispose()
+
+
 def main() -> None:
     setup_logging(json_output=False)
     parser = _build_parser()
@@ -134,6 +298,10 @@ def main() -> None:
 
     if args.command == "doctor":
         code = asyncio.run(_run_doctor(deep=args.deep))
+        sys.exit(code)
+
+    if args.command == "init-soul":
+        code = asyncio.run(_run_init_soul(source=args.source))
         sys.exit(code)
 
     if args.command == "reindex":

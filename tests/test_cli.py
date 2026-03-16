@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,6 +37,18 @@ class TestCliParser:
         args = parser.parse_args([])
         assert args.command is None
 
+    def test_init_soul_subcommand(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["init-soul"])
+        assert args.command == "init-soul"
+        assert args.source is None
+
+    def test_init_soul_source_flag(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["init-soul", "--from", "custom.md"])
+        assert args.command == "init-soul"
+        assert args.source == "custom.md"
+
     def test_reindex_subcommand(self) -> None:
         parser = _build_parser()
         args = parser.parse_args(["reindex"])
@@ -65,6 +78,7 @@ class TestCliModule:
         )
         assert result.returncode == 0
         assert "doctor" in result.stdout
+        assert "init-soul" in result.stdout
 
     def test_doctor_help(self) -> None:
         """python -m src.backend.cli doctor --help should exit 0."""
@@ -87,6 +101,17 @@ class TestCliModule:
         )
         assert result.returncode == 0
         assert "--scope" in result.stdout
+
+    def test_init_soul_help(self) -> None:
+        """python -m src.backend.cli init-soul --help should exit 0."""
+        result = subprocess.run(
+            [sys.executable, "-m", "src.backend.cli", "init-soul", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "--from" in result.stdout
 
     def test_reconcile_help(self) -> None:
         """python -m src.backend.cli reconcile --help should exit 0."""
@@ -153,6 +178,180 @@ class TestReindexCli:
 
         assert code == 0
         assert execution_log == ["truncate", "reindex_all"]
+
+
+class TestInitSoulCli:
+    @pytest.mark.asyncio
+    async def test_init_soul_writes_default_and_bootstraps(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """init-soul should write workspace/SOUL.md from the default template and bootstrap it."""
+        from src.backend.cli import _run_init_soul
+
+        workspace_dir = tmp_path / "workspace"
+        template = tmp_path / "SOUL.default.md"
+        template.write_text("# SOUL.md - Who You Are\nseed\n", encoding="utf-8")
+
+        mock_settings = MagicMock()
+        mock_settings.database = MagicMock()
+        mock_settings.memory = MagicMock()
+        mock_settings.workspace_dir = workspace_dir
+
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        active_version = None
+
+        async def get_current_version():
+            return active_version
+
+        async def ensure_bootstrap(workspace_path):
+            nonlocal active_version
+            assert workspace_path == workspace_dir
+            active_version = MagicMock(version=0)
+
+        mock_evolution = MagicMock()
+        mock_evolution.get_current_version = AsyncMock(side_effect=get_current_version)
+        mock_evolution.ensure_bootstrap = AsyncMock(side_effect=ensure_bootstrap)
+
+        with (
+            patch("src.backend.cli._default_soul_template_path", return_value=template),
+            patch("src.config.settings.get_settings", return_value=mock_settings),
+            patch("src.session.database.create_db_engine", return_value=mock_engine),
+            patch("src.session.database.make_session_factory", return_value=MagicMock()),
+            patch("src.memory.evolution.EvolutionEngine", return_value=mock_evolution),
+        ):
+            code = await _run_init_soul(source=None)
+
+        assert code == 0
+        assert (workspace_dir / "SOUL.md").read_text(encoding="utf-8") == template.read_text(
+            encoding="utf-8"
+        )
+        out = capsys.readouterr().out
+        assert "explicit SOUL bootstrap" in out
+        assert "database becomes the truth source" in out
+        assert "active SOUL version v0" in out
+
+    @pytest.mark.asyncio
+    async def test_init_soul_uses_custom_source_when_requested(
+        self, tmp_path: Path
+    ) -> None:
+        """init-soul should copy the requested source file into workspace/SOUL.md."""
+        from src.backend.cli import _run_init_soul
+
+        workspace_dir = tmp_path / "workspace"
+        source = tmp_path / "custom-soul.md"
+        source.write_text("# Custom Soul\ncustom\n", encoding="utf-8")
+
+        mock_settings = MagicMock()
+        mock_settings.database = MagicMock()
+        mock_settings.memory = MagicMock()
+        mock_settings.workspace_dir = workspace_dir
+
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        active_version = None
+
+        async def get_current_version():
+            return active_version
+
+        async def ensure_bootstrap(workspace_path):
+            nonlocal active_version
+            assert workspace_path == workspace_dir
+            active_version = MagicMock(version=0)
+
+        mock_evolution = MagicMock()
+        mock_evolution.get_current_version = AsyncMock(side_effect=get_current_version)
+        mock_evolution.ensure_bootstrap = AsyncMock(side_effect=ensure_bootstrap)
+
+        with (
+            patch("src.config.settings.get_settings", return_value=mock_settings),
+            patch("src.session.database.create_db_engine", return_value=mock_engine),
+            patch("src.session.database.make_session_factory", return_value=MagicMock()),
+            patch("src.memory.evolution.EvolutionEngine", return_value=mock_evolution),
+        ):
+            code = await _run_init_soul(source=str(source))
+
+        assert code == 0
+        assert (workspace_dir / "SOUL.md").read_text(encoding="utf-8") == "# Custom Soul\ncustom\n"
+
+    @pytest.mark.asyncio
+    async def test_init_soul_refuses_when_db_already_seeded(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """init-soul should refuse to overwrite an already-initialized DB truth source."""
+        from src.backend.cli import _run_init_soul
+
+        workspace_dir = tmp_path / "workspace"
+        template = tmp_path / "SOUL.default.md"
+        template.write_text("# SOUL.md - Who You Are\nseed\n", encoding="utf-8")
+
+        mock_settings = MagicMock()
+        mock_settings.database = MagicMock()
+        mock_settings.memory = MagicMock()
+        mock_settings.workspace_dir = workspace_dir
+
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        active = MagicMock(version=3)
+        mock_evolution = MagicMock()
+        mock_evolution.get_current_version = AsyncMock(return_value=active)
+        mock_evolution.ensure_bootstrap = AsyncMock()
+
+        with (
+            patch("src.backend.cli._default_soul_template_path", return_value=template),
+            patch("src.config.settings.get_settings", return_value=mock_settings),
+            patch("src.session.database.create_db_engine", return_value=mock_engine),
+            patch("src.session.database.make_session_factory", return_value=MagicMock()),
+            patch("src.memory.evolution.EvolutionEngine", return_value=mock_evolution),
+        ):
+            code = await _run_init_soul(source=None)
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "already has active SOUL version v3" in out
+        mock_evolution.ensure_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_init_soul_refuses_conflicting_existing_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """init-soul should fail closed if workspace/SOUL.md conflicts with requested source."""
+        from src.backend.cli import _run_init_soul
+
+        workspace_dir = tmp_path / "workspace"
+        workspace_dir.mkdir()
+        (workspace_dir / "SOUL.md").write_text("# Existing Soul\n", encoding="utf-8")
+
+        source = tmp_path / "custom-soul.md"
+        source.write_text("# Requested Soul\n", encoding="utf-8")
+
+        mock_settings = MagicMock()
+        mock_settings.database = MagicMock()
+        mock_settings.memory = MagicMock()
+        mock_settings.workspace_dir = workspace_dir
+
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        mock_evolution = MagicMock()
+        mock_evolution.get_current_version = AsyncMock(return_value=None)
+        mock_evolution.ensure_bootstrap = AsyncMock()
+
+        with (
+            patch("src.config.settings.get_settings", return_value=mock_settings),
+            patch("src.session.database.create_db_engine", return_value=mock_engine),
+            patch("src.session.database.make_session_factory", return_value=MagicMock()),
+            patch("src.memory.evolution.EvolutionEngine", return_value=mock_evolution),
+        ):
+            code = await _run_init_soul(source=str(source))
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "differs from the requested source" in err
+        mock_evolution.ensure_bootstrap.assert_not_called()
 
 
 class TestReconcileCli:

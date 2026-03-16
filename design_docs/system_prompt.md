@@ -91,6 +91,7 @@ When in doubt, ask.
 
 模板约定（对齐当前实现）：
 - 默认参考模板见 `design_docs/templates/SOUL.default.md`。
+- 显式初始化默认或自定义 `v0-seed` 使用 `just init-soul [--from <path>]`；系统启动不会自动从默认模板 copy。
 - 当前 guardrail 只会从 `# ` 一级标题和 `- **...**` 粗体列表项中提取 anchor；默认模板中的硬约束应优先写成 `- **...**` 形式。
 - 个人/作者风格模板可以存放在非 runtime 路径（如 `dev_docs/` 下），但只有 workspace 根目录的 `SOUL.md` 会被 prompt builder 注入，也只有它会参与 bootstrap / reconcile / guardrail。
 
