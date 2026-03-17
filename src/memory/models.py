@@ -45,10 +45,12 @@ class MemoryEntry(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    entry_id = Column(String(36), nullable=True)  # UUIDv7 stable object identity (ADR 0053)
     scope_key = Column(String(128), nullable=False, default="main")
     source_type = Column(String(16), nullable=False)  # daily_note | curated | flush_candidate
     source_path = Column(String(256), nullable=True)
     source_date = Column(Date, nullable=True)
+    source_session_id = Column(String(256), nullable=True)  # provenance (ADR 0053)
     title = Column(Text, nullable=False, default="")
     content = Column(Text, nullable=False)
     tags = Column(ARRAY(Text), default=list)

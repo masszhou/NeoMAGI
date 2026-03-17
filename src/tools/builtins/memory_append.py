@@ -63,10 +63,12 @@ class MemoryAppendTool(BaseTool):
             }
 
         scope_key = context.scope_key if context else "main"
+        source_session_id = context.session_id if context else None
         path = await self._writer.append_daily_note(
             text=text.strip(),
             scope_key=scope_key,
             source="user",
+            source_session_id=source_session_id,
         )
         return {
             "ok": True,

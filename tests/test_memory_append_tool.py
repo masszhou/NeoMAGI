@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -101,3 +102,38 @@ class TestMemoryAppendToolExecute:
         path = tmp_path / "memory" / f"{date.today().isoformat()}.md"
         content = path.read_text(encoding="utf-8")
         assert "scope: main" in content
+
+    @pytest.mark.asyncio
+    async def test_session_id_propagated_as_source_session_id(self, tmp_path: Path) -> None:
+        """ADR 0053: context.session_id transparently becomes source_session_id."""
+        tool = _make_tool(tmp_path)
+        ctx = ToolContext(scope_key="main", session_id="telegram:peer:42")
+
+        await tool.execute({"text": "propagated"}, ctx)
+
+        path = tmp_path / "memory" / f"{date.today().isoformat()}.md"
+        content = path.read_text(encoding="utf-8")
+        assert "source_session_id: telegram:peer:42" in content
+
+    @pytest.mark.asyncio
+    async def test_entry_id_present(self, tmp_path: Path) -> None:
+        """ADR 0053: each write gets a unique entry_id."""
+        tool = _make_tool(tmp_path)
+        ctx = ToolContext(scope_key="main", session_id="s1")
+
+        await tool.execute({"text": "with id"}, ctx)
+
+        path = tmp_path / "memory" / f"{date.today().isoformat()}.md"
+        content = path.read_text(encoding="utf-8")
+        assert re.search(r"entry_id:\s*[\w-]{36}", content)
+
+    @pytest.mark.asyncio
+    async def test_no_context_omits_source_session_id(self, tmp_path: Path) -> None:
+        """No context → no source_session_id in daily note."""
+        tool = _make_tool(tmp_path)
+
+        await tool.execute({"text": "no session"}, None)
+
+        path = tmp_path / "memory" / f"{date.today().isoformat()}.md"
+        content = path.read_text(encoding="utf-8")
+        assert "source_session_id" not in content

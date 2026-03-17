@@ -131,10 +131,13 @@ class MemoryIndexer:
         title: str = "",
         tags: list[str] | None = None,
         confidence: float | None = None,
+        entry_id: str | None = None,
+        source_session_id: str | None = None,
     ) -> int:
         """Index a single entry directly (used by writer for incremental index)."""
         async with self._db_factory() as db:
             entry = MemoryEntry(
+                entry_id=entry_id,
                 scope_key=scope_key,
                 source_type=source_type,
                 source_path=source_path,
@@ -143,6 +146,7 @@ class MemoryIndexer:
                 content=content,
                 tags=tags or [],
                 confidence=confidence,
+                source_session_id=source_session_id,
             )
             db.add(entry)
             await db.commit()
@@ -158,13 +162,15 @@ class MemoryIndexer:
             stripped = entry.strip()
             if not stripped:
                 continue
-            entry_scope = self._extract_scope(stripped, default=scope_key)
+            meta = self._parse_entry_metadata(stripped, default_scope=scope_key)
             entry_text = self._extract_entry_text(stripped)
             if not entry_text:
                 continue
             rows.append({
-                "scope_key": entry_scope, "source_type": "daily_note",
+                "entry_id": meta["entry_id"],
+                "scope_key": meta["scope"], "source_type": "daily_note",
                 "source_path": rel_path, "source_date": source_date,
+                "source_session_id": meta["source_session_id"],
                 "title": "", "content": entry_text, "tags": [], "confidence": None,
             })
         return rows
@@ -189,6 +195,31 @@ class MemoryIndexer:
         return None
 
     @staticmethod
+    def _parse_entry_metadata(
+        entry_text: str, *, default_scope: str = "main",
+    ) -> dict[str, str | None]:
+        """Extract metadata fields from a daily note entry's first metadata line only.
+
+        Only the first line matching ``[HH:MM]`` is considered; body content
+        is never scanned, preventing false positives from user prose.
+
+        Returns dict with keys: entry_id, scope, source_session_id.
+        Missing fields resolve to None (entry_id, source_session_id) or
+        default_scope (scope). Backward-compatible with old format.
+        """
+        first_line = entry_text.split("\n", 1)[0]
+        if not re.match(r"^\[[\d:]+\]", first_line):
+            return {"entry_id": None, "scope": default_scope, "source_session_id": None}
+        entry_id_m = re.search(r"entry_id:\s*(\S+)", first_line)
+        scope_m = re.search(r"scope:\s*(\S+)", first_line)
+        ssid_m = re.search(r"source_session_id:\s*(\S+)", first_line)
+        return {
+            "entry_id": entry_id_m.group(1).rstrip(",)") if entry_id_m else None,
+            "scope": scope_m.group(1).rstrip(",)") if scope_m else default_scope,
+            "source_session_id": ssid_m.group(1).rstrip(",)") if ssid_m else None,
+        }
+
+    @staticmethod
     def _extract_scope(entry_text: str, *, default: str = "main") -> str:
         """Extract scope from entry metadata line.
 
@@ -196,7 +227,7 @@ class MemoryIndexer:
         """
         match = re.search(r"scope:\s*(\S+)", entry_text)
         if match:
-            return match.group(1).rstrip(")")
+            return match.group(1).rstrip(",)")
         return default
 
     @staticmethod

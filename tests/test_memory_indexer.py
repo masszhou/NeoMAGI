@@ -72,6 +72,99 @@ class TestHelpers:
         assert len(sections) == 0
 
 
+class TestParseEntryMetadata:
+    """ADR 0053: unified metadata parser."""
+
+    def test_new_format_all_fields(self) -> None:
+        text = (
+            "[22:47] (entry_id: 0195d9d7-6f5e-7d9b-a2d3-8a4d4f3d2c11, "
+            "source: user, scope: main, source_session_id: telegram:peer:123)"
+        )
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["entry_id"] == "0195d9d7-6f5e-7d9b-a2d3-8a4d4f3d2c11"
+        assert meta["scope"] == "main"
+        assert meta["source_session_id"] == "telegram:peer:123"
+
+    def test_old_format_no_entry_id(self) -> None:
+        text = "[10:00] (source: user, scope: main)"
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["entry_id"] is None
+        assert meta["scope"] == "main"
+        assert meta["source_session_id"] is None
+
+    def test_old_format_no_scope(self) -> None:
+        text = "[10:00] some old note"
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["entry_id"] is None
+        assert meta["scope"] == "main"
+        assert meta["source_session_id"] is None
+
+    def test_custom_default_scope(self) -> None:
+        text = "[10:00] no metadata"
+        meta = MemoryIndexer._parse_entry_metadata(text, default_scope="other")
+        assert meta["scope"] == "other"
+
+    def test_new_format_without_source_session_id(self) -> None:
+        text = "[10:00] (entry_id: abc-def-123, source: user, scope: main)"
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["entry_id"] == "abc-def-123"
+        assert meta["scope"] == "main"
+        assert meta["source_session_id"] is None
+
+    def test_body_content_not_parsed_as_metadata(self) -> None:
+        """Body prose mentioning metadata keys must not poison parsed values."""
+        text = (
+            "[10:00] (source: user, scope: main)\n"
+            "User said source_session_id: evil and entry_id: fake"
+        )
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["entry_id"] is None
+        assert meta["source_session_id"] is None
+        assert meta["scope"] == "main"
+
+    def test_no_metadata_line(self) -> None:
+        """Plain text without [HH:MM] prefix returns all defaults."""
+        meta = MemoryIndexer._parse_entry_metadata("Just plain content")
+        assert meta["entry_id"] is None
+        assert meta["scope"] == "main"
+        assert meta["source_session_id"] is None
+
+
+class TestParseDailyEntries:
+    """Verify _parse_daily_entries propagates ADR 0053 fields into row dicts."""
+
+    def test_new_format_rows_include_entry_id(self, tmp_path: Path) -> None:
+        settings = _make_settings(tmp_path)
+        db_factory = MagicMock()
+        indexer = MemoryIndexer(db_factory, settings)
+
+        entries = [
+            "",
+            (
+                "[22:47] (entry_id: abc-123, source: user, scope: main,"
+                " source_session_id: telegram:peer:42)\nContent here"
+            ),
+        ]
+        rows = indexer._parse_daily_entries(entries, "main", date(2026, 3, 17), "memory/2026-03-17.md")
+        assert len(rows) == 1
+        assert rows[0]["entry_id"] == "abc-123"
+        assert rows[0]["source_session_id"] == "telegram:peer:42"
+        assert rows[0]["scope_key"] == "main"
+        assert rows[0]["content"] == "Content here"
+
+    def test_old_format_rows_have_null_fields(self, tmp_path: Path) -> None:
+        settings = _make_settings(tmp_path)
+        db_factory = MagicMock()
+        indexer = MemoryIndexer(db_factory, settings)
+
+        entries = ["", "[10:00] (source: user, scope: main)\nOld content"]
+        rows = indexer._parse_daily_entries(entries, "main", date(2026, 2, 22), "memory/2026-02-22.md")
+        assert len(rows) == 1
+        assert rows[0]["entry_id"] is None
+        assert rows[0]["source_session_id"] is None
+        assert rows[0]["content"] == "Old content"
+
+
 class TestIndexDailyNote:
     @pytest.mark.asyncio
     async def test_index_nonexistent_file(self, tmp_path: Path) -> None:

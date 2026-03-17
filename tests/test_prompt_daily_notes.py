@@ -147,6 +147,57 @@ class TestFilterEntriesByScope:
         assert "Entry B" not in result
         assert "Entry C" in result
 
+    def test_body_scope_keyword_not_misinterpreted(self) -> None:
+        """Body prose mentioning 'scope: other' must not cause exclusion."""
+        content = (
+            "---\n[10:00] (source: user, scope: main)\n"
+            "The user mentioned scope: other in conversation"
+        )
+        result = PromptBuilder._filter_entries_by_scope(content, "main")
+        assert "scope: other" in result
+
+
+class TestAdr0053FormatCompatibility:
+    """ADR 0053: new metadata format with entry_id + source_session_id."""
+
+    def test_new_format_scope_filter_includes(self, tmp_path: Path) -> None:
+        today = date.today()
+        content = (
+            "---\n[10:00] (entry_id: abc-123, source: user, scope: main,"
+            " source_session_id: s1)\nNew format note"
+        )
+        _write_daily_note(tmp_path, today, content)
+
+        builder = _make_builder(tmp_path)
+        result = builder._load_daily_notes(scope_key="main")
+        assert "New format note" in result
+
+    def test_new_format_scope_filter_excludes(self, tmp_path: Path) -> None:
+        today = date.today()
+        content = (
+            "---\n[10:00] (entry_id: abc-123, source: user, scope: other,"
+            " source_session_id: s1)\nOther scope"
+        )
+        _write_daily_note(tmp_path, today, content)
+
+        builder = _make_builder(tmp_path)
+        result = builder._load_daily_notes(scope_key="main")
+        assert result == ""
+
+    def test_mixed_old_and_new_format(self, tmp_path: Path) -> None:
+        today = date.today()
+        content = (
+            "---\n[10:00] (source: user, scope: main)\nOld entry\n"
+            "---\n[11:00] (entry_id: abc-123, source: user, scope: main,"
+            " source_session_id: s1)\nNew entry"
+        )
+        _write_daily_note(tmp_path, today, content)
+
+        builder = _make_builder(tmp_path)
+        result = builder._load_daily_notes(scope_key="main")
+        assert "Old entry" in result
+        assert "New entry" in result
+
 
 class TestDailyNotesInBuild:
     def test_daily_notes_appear_in_workspace_layer(self, tmp_path: Path) -> None:

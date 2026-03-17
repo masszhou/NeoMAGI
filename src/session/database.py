@@ -40,6 +40,7 @@ async def ensure_schema(engine: AsyncEngine, schema: str = DB_SCHEMA) -> None:
         await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
         await conn.run_sync(Base.metadata.create_all)
         await _add_legacy_columns(conn, schema)
+        await _add_memory_entry_columns(conn, schema)
         await _create_search_trigger(conn, schema)
 
     logger.info("db_schema_ensured", schema=schema)
@@ -60,6 +61,18 @@ async def _add_legacy_columns(conn, schema: str) -> None:
     for col_def in columns:
         await conn.execute(
             text(f"ALTER TABLE {schema}.sessions ADD COLUMN IF NOT EXISTS {col_def}")
+        )
+
+
+async def _add_memory_entry_columns(conn, schema: str) -> None:
+    """Add ADR 0053 provenance columns to memory_entries (idempotent)."""
+    columns = [
+        "entry_id VARCHAR(36)",
+        "source_session_id VARCHAR(256)",
+    ]
+    for col_def in columns:
+        await conn.execute(
+            text(f"ALTER TABLE {schema}.memory_entries ADD COLUMN IF NOT EXISTS {col_def}")
         )
 
 

@@ -285,10 +285,11 @@ class PromptBuilder:
             if not stripped:
                 continue
 
-            # Check if entry has scope metadata
-            scope_match = re.search(r"scope:\s*(\S+)", stripped)
+            # Check scope metadata on first line only (not body content)
+            first_line = stripped.split("\n", 1)[0]
+            scope_match = re.search(r"scope:\s*(\S+)", first_line)
             if scope_match:
-                entry_scope = scope_match.group(1).rstrip(")")
+                entry_scope = scope_match.group(1).rstrip(",)")
                 if entry_scope != scope_key:
                     continue
             else:

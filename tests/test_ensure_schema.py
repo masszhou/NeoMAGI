@@ -109,3 +109,23 @@ async def _assert_legacy_columns_backfilled(engine: AsyncEngine) -> None:
         row = mode_result.first()
         assert row is not None
         assert row.mode == "chat_safe"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_ensure_schema_adds_memory_entry_provenance_columns(
+    db_engine: AsyncEngine,
+) -> None:
+    """ADR 0053: entry_id and source_session_id columns are idempotently added."""
+    await ensure_schema(db_engine, DB_SCHEMA)
+    # Second call must be idempotent
+    await ensure_schema(db_engine, DB_SCHEMA)
+
+    async with db_engine.begin() as conn:
+        result = await conn.execute(text(f"""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = '{DB_SCHEMA}' AND table_name = 'memory_entries'
+        """))
+        columns = {row.column_name for row in result}
+        assert "entry_id" in columns
+        assert "source_session_id" in columns
