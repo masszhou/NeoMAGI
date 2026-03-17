@@ -1,8 +1,8 @@
-# P2-M1 实施计划：Growth Eval Contract 与对象边界
+# P2-M1b 前置计划：Growth Eval Contract 与对象边界
 
 - Date: 2026-03-15
 - Status: approved
-- Scope: `P2-M1` only; define immutable growth eval contracts and object boundaries for explicit growth, without building a full autonomous code-search system
+- Scope: `P2-M1` pre-`P2-M1b`; define immutable growth eval contracts and object boundaries for explicit growth before `skill_spec` onboarding, without building a full autonomous code-search system
 - Basis:
   - [`design_docs/phase2/roadmap_milestones_v1.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/roadmap_milestones_v1.md)
   - [`design_docs/phase2/p2_m1_architecture.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/p2_m1_architecture.md)
@@ -327,7 +327,7 @@ V1 先拆成 4 层：
 产出文件：
 
 - [`design_docs/GLOSSARY.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/GLOSSARY.md)
-- [`dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md)
+- [`dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md)
 
 ### WP2. `soul` Contract Profile
 
@@ -341,7 +341,7 @@ V1 先拆成 4 层：
 
 产出文件：
 
-- [`dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md)
+- [`dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md)
 - 下游消费：[`src/memory/evolution.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/src/memory/evolution.py)
 
 ### WP3. `skill_spec` Contract Profile
@@ -359,7 +359,7 @@ V1 先拆成 4 层：
 
 产出文件：
 
-- [`dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md)
+- [`dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md)
 - [`dev_docs/plans/phase2/p2-m1b_skill-objects-runtime_2026-03-14_draft.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1b_skill-objects-runtime_2026-03-14_draft.md)
 
 ### WP4. Reserved Kind Templates
@@ -373,7 +373,7 @@ V1 先拆成 4 层：
 
 产出文件：
 
-- [`dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1_growth-eval-contract_2026-03-15.md)
+- [`dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md)
 - 下游消费：[`design_docs/procedure_runtime.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/procedure_runtime.md)
 - 下游消费：[`design_docs/phase2/p2_m2_architecture.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/p2_m2_architecture.md)
 
