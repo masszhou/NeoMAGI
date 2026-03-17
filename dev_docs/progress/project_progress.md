@@ -423,3 +423,12 @@
 - Evidence: `dev_docs/plans/phase2/p2-m1a_growth-governance-kernel_2026-03-06.md`；`design_docs/phase2/roadmap_milestones_v1.md`；`design_docs/phase2/p2_m1_architecture.md`；`dev_docs/progress/project_progress.md` 中 `P2-M1a closeout` / `Complexity Batch Sweep Closeout` 条目
 - Next: 主线下一步应进入 `P2-M1b`，而不是跳到 `P2-M2`；建议先产出 `dev_docs/plans/phase2/` 下的 `P2-M1b` draft，范围聚焦 `skill object runtime + builder runtime + beads work memory` 的最小可用闭环，明天从该 draft 开始继续
 - Risk: `P2-M1b` 仍是高复杂度阶段，若不先压成最小闭环，容易把 `skill object`、builder 产品化、work memory 与 promote 规则一次性耦合过深
+
+<!-- devcoord:begin milestone=p2-m1b -->
+## 2026-03-17 (generated) | P2-M1B
+- Status: in_progress
+- Done: control plane initialized
+- Evidence: `dev_docs/logs/phase2/p2-m1b_2026-03-17/gate_state.md`, `dev_docs/logs/phase2/p2-m1b_2026-03-17/watchdog_status.md`
+- Next: 等待 P2-M1B 下一条 gate 或 phase 指令
+- Risk: 无
+<!-- devcoord:end milestone=p2-m1b -->

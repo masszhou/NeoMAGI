@@ -250,7 +250,10 @@ def run_cli(
         normalized = _normalize_argv(raw_argv)
         parser = build_parser()
         args = parser.parse_args(normalized)
-        resolved_paths = paths or _resolve_paths()
+        is_init = getattr(args, "_action", None) == "init" or args.command == "init"
+        resolved_paths = paths or _resolve_paths(
+            skip_split_brain_guard=is_init,
+        )
         resolved_store = store or SQLiteCoordStore(resolved_paths.control_db)
         service = CoordService(
             paths=resolved_paths,
@@ -278,7 +281,7 @@ def main() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_paths() -> CoordPaths:
+def _resolve_paths(*, skip_split_brain_guard: bool = False) -> CoordPaths:
     git_common_dir = _resolve_git_common_dir(Path.cwd())
     workspace_root = _shared_workspace_root(Path.cwd())
     control_root = workspace_root / ".devcoord"
@@ -288,7 +291,8 @@ def _resolve_paths() -> CoordPaths:
     # If a beads control plane exists (repo-root .beads/ or legacy
     # .coord/beads/) but no SQLite control.db has been bootstrapped yet,
     # refuse to proceed — the operator must complete the cutover first.
-    if not control_db.exists():
+    # Skipped for `init` since that command creates the control.db.
+    if not skip_split_brain_guard and not control_db.exists():
         legacy_markers = (
             workspace_root / ".beads" / "metadata.json",
             workspace_root / ".coord" / "beads" / ".beads" / "metadata.json",
