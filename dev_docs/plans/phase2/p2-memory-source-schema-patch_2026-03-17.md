@@ -1,7 +1,7 @@
 # P2 Memory Source Schema Patch 实施计划
 
 - Date: 2026-03-17
-- Status: draft
+- Status: approved
 - Scope: 仅覆盖 ADR 0053 的最小实现补丁；让 daily note 真源写入 `entry_id + scope_key + source_session_id`，并让数据库索引层能够解析和持久化这些字段
 - Track Type: parallel implementation patch track; outside the `P2-M*` product milestone series
 - Execution Issue: `NeoMAGI-6ra`
