@@ -168,12 +168,15 @@
 ### Wrapper Tool
 - **Category**：Capability Layer / Governance Object
 - **Aliases**：`wrapper_tool`
-- **Definition**：稳定的能力封装单元。它内部可以组合多个底层动作，但对上层仍表现为一个原子动作。适合“多命令但仍原子”的场景，复杂到需要 state / guard / recovery 时就不再适合停留在 wrapper tool。
+- **Definition**：single-turn governed capability unit。它内部可以组合多个底层动作，但对上层仍表现为一个原子动作。可被受治理地 apply / rollback / supersede，不承载 cross-turn state（ADR 0056）。适合”多命令但仍原子”的场景，复杂到需要 state / guard / recovery 时就不再适合停留在 wrapper tool。
 - **Relations**：
   - `built-from` → [Atomic Tool](#atomic-tool)
   - `may-be-promoted-from` → [SkillSpec](#skillspec)
   - `may-promote-to` → [ProcedureSpec](#procedurespec)
   - `is-a` → [Growth Object](#growth-object)
+  - `has` → [implementation_ref](#implementation_ref)
+  - `declares` → [scope_claim (wrapper tool)](#scope_claim-wrapper-tool)
+  - `declares` → [deny_semantics](#deny_semantics)
 
 ### ProcedureSpec
 - **Category**：Runtime Control / Governance Object
@@ -286,3 +289,61 @@
 - **Relations**：
   - `supports` → [Growth Proposal](#growth-proposal)
   - `is-not-a` → [Growth Object](#growth-object)
+
+### implementation_ref
+- **Category**：Capability Layer / Implementation
+- **Aliases**：`implementation_ref`
+- **Definition**：Python entrypoint string，格式为 `<module_path>:<factory_name>`，factory 返回 `BaseTool` 实例。这是 V1 implementation choice，不是 ADR 冻结项。
+- **Relations**：
+  - `used-by` → [Wrapper Tool](#wrapper-tool)
+
+### scope_claim (wrapper tool)
+- **Category**：Capability Layer / Governance
+- **Aliases**：wrapper scope claim
+- **Definition**：wrapper tool 的作用域声明。取值为 `local`（仅当前上下文有效）、`reusable`（跨会话可复用）、`promotable`（可进一步提升为更稳定对象）。claim 越强，所需证据和回归要求越高。与 eval 层的通用 [Scope Claim](#scope-claim) 概念一致，但此处特指 wrapper tool 对象上的声明值。
+- **Relations**：
+  - `declared-by` → [Wrapper Tool](#wrapper-tool)
+  - `verified-by` → `scope_claim_consistency` check in [GrowthEvalContract](#growthevalcontract)
+
+### deny_semantics
+- **Category**：Capability Layer / Governance
+- **Aliases**：deny behavior, deny rules
+- **Definition**：wrapper tool 的拒绝语义定义，声明何种输入条件或运行时状态下 wrapper 应主动拒绝执行（而非静默失败或产生不安全输出）。是 wrapper tool eval contract 的 veto condition 之一（`deny_semantics_broken`）。
+- **Relations**：
+  - `declared-by` → [Wrapper Tool](#wrapper-tool)
+  - `verified-by` → [GrowthEvalContract](#growthevalcontract)
+
+### BuilderTaskRecord
+- **Category**：Builder / Work Memory
+- **Aliases**：builder task record
+- **Definition**：builder work memory 的逻辑对象，记录 builder 任务的 brief、progress、blockers、validation summary、artifact refs 和 promote candidate refs。canonical record 在 `workspace/artifacts/` 下的 workspace artifact 中（ADR 0055），`bd / beads` 只承担索引职责。
+- **Relations**：
+  - `persisted-in` → `workspace/artifacts/`
+  - `indexed-by` → `bd / beads` issues
+  - `references` → [artifact_id](#artifact_id)
+
+### GrowthCaseSpec
+- **Category**：Growth / Case
+- **Aliases**：growth case spec, case spec
+- **Definition**：curated growth case 的规格定义。在 V1 中为 hardcoded catalog（ADR 0057 指导原则：具体形状属于 implementation-level choice）。每个 case 定义验收场景、预期行为和评估标准。
+- **Relations**：
+  - `instantiated-as` → [GrowthCaseRun](#growthcaserun)
+  - `is-not-a` → [Growth Object](#growth-object)
+
+### GrowthCaseRun
+- **Category**：Growth / Case / Runtime
+- **Aliases**：growth case run, case run
+- **Definition**：growth case 的一次执行记录。workspace artifact 持久化（`workspace/artifacts/growth_cases/<case_id>/<run_id>.md`），不进 PostgreSQL。记录执行输入、输出、判定结果和 evidence refs。
+- **Relations**：
+  - `instance-of` → [GrowthCaseSpec](#growthcasespec)
+  - `persisted-in` → `workspace/artifacts/`
+  - `identified-by` → [artifact_id](#artifact_id)
+
+### artifact_id
+- **Category**：Identity / Workspace
+- **Aliases**：`artifact_id`
+- **Definition**：workspace artifact 的稳定标识符，采用 UUIDv7（ADR 0053 / 0055）。必须写入 artifact 真源元数据，而不是只存在 bead 索引或 projection 中。保证 artifact 在重命名、移动或重建索引后仍保持身份稳定。
+- **Relations**：
+  - `identifies` → workspace artifacts in `workspace/artifacts/`
+  - `referenced-by` → [BuilderTaskRecord](#buildertaskrecord)
+  - `referenced-by` → [GrowthCaseRun](#growthcaserun)
