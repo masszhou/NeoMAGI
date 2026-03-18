@@ -300,6 +300,9 @@ class SkillGovernedObjectAdapter:
         1. Check eval_result.passed == True
         2. Upsert skill_specs + skill_evidence
         3. Mark ledger row as active
+
+        Steps 2-3 execute within a single DB transaction so that a failure
+        in either rolls back both (no current-state / ledger drift).
         """
         record = await self._store.get_proposal(version)
         if record is None:
@@ -317,13 +320,15 @@ class SkillGovernedObjectAdapter:
         spec = SkillSpec(**payload["skill_spec"])
         evidence = SkillEvidence(**payload["skill_evidence"])
 
-        # Atomic: upsert current-state + update ledger
-        await self._store.upsert_active(spec, evidence)
-        await self._store.update_proposal_status(
-            version,
-            GrowthLifecycleStatus.active,
-            applied_at=datetime.now(UTC),
-        )
+        # Atomic: upsert current-state + update ledger in one transaction
+        async with self._store.transaction() as session:
+            await self._store.upsert_active(spec, evidence, session=session)
+            await self._store.update_proposal_status(
+                version,
+                GrowthLifecycleStatus.active,
+                applied_at=datetime.now(UTC),
+                session=session,
+            )
         logger.info("skill_adapter_applied", governance_version=version, skill_id=spec.id)
 
     async def rollback(self, **kwargs: object) -> int:
@@ -332,43 +337,52 @@ class SkillGovernedObjectAdapter:
         If a previous applied snapshot exists -> materialize as new active + rollback entry.
         If no recoverable snapshot -> disable current skill + rollback entry.
         Returns the governance_version of the rollback entry.
+
+        All writes execute within a single DB transaction (atomic).
         """
         skill_id = kwargs.get("skill_id")
         if not isinstance(skill_id, str):
             raise ValueError("rollback() requires skill_id as keyword argument")
 
-        # Find last applied version
+        # Find last applied version (read, outside the write transaction)
         last_applied = await self._store.find_last_applied(skill_id)
-        if last_applied is not None:
-            # Re-materialize previous snapshot
-            payload = last_applied.proposal.get("payload", {})
-            spec = SkillSpec(**payload["skill_spec"])
-            evidence = SkillEvidence(**payload["skill_evidence"])
-            await self._store.upsert_active(spec, evidence)
-            # Mark current active as rolled_back
-            await self._store.update_proposal_status(
-                last_applied.governance_version,
-                GrowthLifecycleStatus.rolled_back,
-            )
-        else:
-            # No recoverable snapshot -> disable
-            await self._store.disable(skill_id)
 
-        # Create a rollback ledger entry
-        rollback_proposal = GrowthProposal(
-            object_kind=GrowthObjectKind.skill_spec,
-            object_id=skill_id,
-            intent="rollback",
-            risk_notes="System rollback",
-            diff_summary="Rollback to previous version or disable",
-            proposed_by="system",
-        )
-        gv = await self._store.create_proposal(rollback_proposal)
-        await self._store.update_proposal_status(
-            gv,
-            GrowthLifecycleStatus.rolled_back,
-            rolled_back_from=last_applied.governance_version if last_applied else None,
-        )
+        async with self._store.transaction() as session:
+            if last_applied is not None:
+                # Re-materialize previous snapshot
+                payload = last_applied.proposal.get("payload", {})
+                spec = SkillSpec(**payload["skill_spec"])
+                evidence = SkillEvidence(**payload["skill_evidence"])
+                await self._store.upsert_active(spec, evidence, session=session)
+                # Mark current active as rolled_back
+                await self._store.update_proposal_status(
+                    last_applied.governance_version,
+                    GrowthLifecycleStatus.rolled_back,
+                    session=session,
+                )
+            else:
+                # No recoverable snapshot -> disable
+                await self._store.disable(skill_id, session=session)
+
+            # Create a rollback ledger entry
+            rollback_proposal = GrowthProposal(
+                object_kind=GrowthObjectKind.skill_spec,
+                object_id=skill_id,
+                intent="rollback",
+                risk_notes="System rollback",
+                diff_summary="Rollback to previous version or disable",
+                proposed_by="system",
+            )
+            gv = await self._store.create_proposal(rollback_proposal, session=session)
+            await self._store.update_proposal_status(
+                gv,
+                GrowthLifecycleStatus.rolled_back,
+                rolled_back_from=(
+                    last_applied.governance_version if last_applied else None
+                ),
+                session=session,
+            )
+
         logger.info("skill_adapter_rolled_back", governance_version=gv, skill_id=skill_id)
         return gv
 

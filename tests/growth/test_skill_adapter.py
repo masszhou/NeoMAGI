@@ -2,15 +2,17 @@
 
 Covers: kind property, Protocol conformance, propose/evaluate/apply/rollback/veto/get_active,
 eval checks (schema_validity, activation_correctness, projection_safety,
-learning_discipline, scope_claim_consistency), payload validation, error paths.
+learning_discipline, scope_claim_consistency), payload validation, error paths,
+and single-transaction atomicity of apply/rollback.
 
 Uses mock SkillStore (AsyncMock) -- no real DB required.
 """
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -117,6 +119,16 @@ def mock_store() -> AsyncMock:
     store.disable = AsyncMock()
     store.find_last_applied = AsyncMock(return_value=None)
     store.list_active = AsyncMock(return_value=[_make_skill_spec()])
+
+    # transaction() returns an async context manager yielding a mock session.
+    mock_session = MagicMock(name="mock_db_session")
+
+    @asynccontextmanager
+    async def _fake_transaction():
+        yield mock_session
+
+    store.transaction = _fake_transaction
+    store._mock_session = mock_session  # expose for test assertions
     return store
 
 
@@ -437,6 +449,22 @@ class TestApply:
         mock_store.update_proposal_status.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_passes_session_to_store_methods(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        """apply() must pass the transaction session to both store writes."""
+        mock_store.get_proposal = AsyncMock(
+            return_value=_make_proposal_record(eval_passed=True)
+        )
+        await adapter.apply(1)
+        # Both calls must have received session=<mock_session>
+        session = mock_store._mock_session
+        upsert_call = mock_store.upsert_active.call_args
+        assert upsert_call.kwargs.get("session") is session
+        status_call = mock_store.update_proposal_status.call_args
+        assert status_call.kwargs.get("session") is session
+
+    @pytest.mark.asyncio
     async def test_not_found_raises(
         self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
     ) -> None:
@@ -478,7 +506,11 @@ class TestRollback:
         mock_store.find_last_applied = AsyncMock(return_value=None)
         gv = await adapter.rollback(skill_id="sk-001")
         assert isinstance(gv, int)
-        mock_store.disable.assert_awaited_once_with("sk-001")
+        mock_store.disable.assert_awaited_once()
+        # Verify session was passed
+        disable_call = mock_store.disable.call_args
+        assert disable_call.args[0] == "sk-001"
+        assert disable_call.kwargs.get("session") is mock_store._mock_session
 
     @pytest.mark.asyncio
     async def test_with_previous_re_materializes(
@@ -489,6 +521,25 @@ class TestRollback:
         gv = await adapter.rollback(skill_id="sk-001")
         assert isinstance(gv, int)
         mock_store.upsert_active.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rollback_passes_session_to_all_writes(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        """rollback() must pass the transaction session to every store write."""
+        prev = _make_proposal_record(governance_version=2, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=prev)
+        await adapter.rollback(skill_id="sk-001")
+        session = mock_store._mock_session
+        # upsert_active
+        upsert_call = mock_store.upsert_active.call_args
+        assert upsert_call.kwargs.get("session") is session
+        # update_proposal_status (called twice: mark old + mark rollback entry)
+        for call in mock_store.update_proposal_status.call_args_list:
+            assert call.kwargs.get("session") is session
+        # create_proposal
+        create_call = mock_store.create_proposal.call_args
+        assert create_call.kwargs.get("session") is session
 
     @pytest.mark.asyncio
     async def test_missing_skill_id_raises(
@@ -569,3 +620,82 @@ class TestGetActive:
         mock_store.list_active = AsyncMock(return_value=[])
         result = await adapter.get_active()
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Atomicity: apply/rollback partial-failure propagation
+# ---------------------------------------------------------------------------
+
+
+class TestApplyAtomicity:
+    """Verify that apply() propagates exceptions from either store call.
+
+    Because both calls share a single ``transaction()`` context, the
+    real DB session would rollback on any exception.  Here we verify the
+    adapter does NOT swallow the exception (prerequisite for rollback).
+    """
+
+    @pytest.mark.asyncio
+    async def test_upsert_failure_propagates(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        mock_store.get_proposal = AsyncMock(
+            return_value=_make_proposal_record(eval_passed=True)
+        )
+        mock_store.upsert_active = AsyncMock(
+            side_effect=RuntimeError("DB write failed")
+        )
+        with pytest.raises(RuntimeError, match="DB write failed"):
+            await adapter.apply(1)
+        # update_proposal_status must NOT have been called
+        mock_store.update_proposal_status.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_status_update_failure_propagates(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        mock_store.get_proposal = AsyncMock(
+            return_value=_make_proposal_record(eval_passed=True)
+        )
+        mock_store.update_proposal_status = AsyncMock(
+            side_effect=RuntimeError("Ledger update failed")
+        )
+        with pytest.raises(RuntimeError, match="Ledger update failed"):
+            await adapter.apply(1)
+        # upsert_active was called but the shared transaction would rollback
+        mock_store.upsert_active.assert_awaited_once()
+
+
+class TestRollbackAtomicity:
+    """Verify that rollback() propagates exceptions from any store call.
+
+    All writes share a single ``transaction()`` context.
+    """
+
+    @pytest.mark.asyncio
+    async def test_upsert_failure_propagates(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        prev = _make_proposal_record(governance_version=2, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=prev)
+        mock_store.upsert_active = AsyncMock(
+            side_effect=RuntimeError("DB write failed")
+        )
+        with pytest.raises(RuntimeError, match="DB write failed"):
+            await adapter.rollback(skill_id="sk-001")
+        # Nothing after upsert_active should have been called
+        mock_store.update_proposal_status.assert_not_awaited()
+        mock_store.create_proposal.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_proposal_failure_propagates(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        mock_store.find_last_applied = AsyncMock(return_value=None)
+        mock_store.create_proposal = AsyncMock(
+            side_effect=RuntimeError("Insert failed")
+        )
+        with pytest.raises(RuntimeError, match="Insert failed"):
+            await adapter.rollback(skill_id="sk-001")
+        # disable was called but the shared transaction would rollback
+        mock_store.disable.assert_awaited_once()

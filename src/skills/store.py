@@ -10,6 +10,8 @@ and converted back to tuples on read.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -22,7 +24,7 @@ from src.growth.types import GrowthEvalResult, GrowthLifecycleStatus, GrowthProp
 from src.skills.types import SkillEvidence, SkillSpec
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = structlog.get_logger()
 
@@ -136,6 +138,18 @@ class SkillStore:
     def __init__(self, db_session_factory: async_sessionmaker) -> None:  # type: ignore[type-arg]
         self._db_factory = db_session_factory
 
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncSession]:
+        """Yield a DB session for multi-step atomic operations.
+
+        All statements executed on the yielded session share a single
+        transaction.  Commit happens on successful exit; any exception
+        triggers rollback.
+        """
+        async with self._db_factory() as session:
+            async with session.begin():
+                yield session
+
     # ── SkillRegistry protocol ──
 
     async def list_active(self) -> list[SkillSpec]:
@@ -165,8 +179,18 @@ class SkillStore:
 
     # ── current-state CRUD ──
 
-    async def upsert_active(self, spec: SkillSpec, evidence: SkillEvidence) -> None:
-        """Insert or update a materialized skill + its evidence (single tx)."""
+    async def upsert_active(
+        self,
+        spec: SkillSpec,
+        evidence: SkillEvidence,
+        *,
+        session: AsyncSession | None = None,
+    ) -> None:
+        """Insert or update a materialized skill + its evidence.
+
+        When *session* is provided the caller owns the transaction; otherwise
+        a standalone session + commit is used (backwards-compatible).
+        """
         spec_sql = text(f"""
             INSERT INTO {DB_SCHEMA}.skill_specs
                 (id, capability, version, summary, activation,
@@ -207,34 +231,46 @@ class SkillStore:
                 known_breakages = EXCLUDED.known_breakages,
                 updated_at = now()
         """)
-        async with self._db_factory() as db:
-            await db.execute(spec_sql, {
-                "id": spec.id,
-                "capability": spec.capability,
-                "version": spec.version,
-                "summary": spec.summary,
-                "activation": spec.activation,
-                "activation_tags": list(spec.activation_tags),
-                "preconditions": list(spec.preconditions),
-                "delta": list(spec.delta),
-                "tool_preferences": list(spec.tool_preferences),
-                "escalation_rules": list(spec.escalation_rules),
-                "exchange_policy": spec.exchange_policy,
-                "disabled": spec.disabled,
-            })
-            await db.execute(ev_sql, {
-                "skill_id": spec.id,
-                "source": evidence.source,
-                "success_count": evidence.success_count,
-                "failure_count": evidence.failure_count,
-                "last_validated_at": evidence.last_validated_at,
-                "positive_patterns": list(evidence.positive_patterns),
-                "negative_patterns": list(evidence.negative_patterns),
-                "known_breakages": list(evidence.known_breakages),
-            })
-            await db.commit()
+        spec_params = {
+            "id": spec.id,
+            "capability": spec.capability,
+            "version": spec.version,
+            "summary": spec.summary,
+            "activation": spec.activation,
+            "activation_tags": list(spec.activation_tags),
+            "preconditions": list(spec.preconditions),
+            "delta": list(spec.delta),
+            "tool_preferences": list(spec.tool_preferences),
+            "escalation_rules": list(spec.escalation_rules),
+            "exchange_policy": spec.exchange_policy,
+            "disabled": spec.disabled,
+        }
+        ev_params = {
+            "skill_id": spec.id,
+            "source": evidence.source,
+            "success_count": evidence.success_count,
+            "failure_count": evidence.failure_count,
+            "last_validated_at": evidence.last_validated_at,
+            "positive_patterns": list(evidence.positive_patterns),
+            "negative_patterns": list(evidence.negative_patterns),
+            "known_breakages": list(evidence.known_breakages),
+        }
+        if session is not None:
+            await session.execute(spec_sql, spec_params)
+            await session.execute(ev_sql, ev_params)
+        else:
+            async with self._db_factory() as db:
+                await db.execute(spec_sql, spec_params)
+                await db.execute(ev_sql, ev_params)
+                await db.commit()
 
-    async def update_evidence(self, skill_id: str, evidence: SkillEvidence) -> None:
+    async def update_evidence(
+        self,
+        skill_id: str,
+        evidence: SkillEvidence,
+        *,
+        session: AsyncSession | None = None,
+    ) -> None:
         """Update evidence for an existing skill."""
         sql = text(f"""
             UPDATE {DB_SCHEMA}.skill_evidence SET
@@ -248,18 +284,22 @@ class SkillStore:
                 updated_at = now()
             WHERE skill_id = :skill_id
         """)
-        async with self._db_factory() as db:
-            await db.execute(sql, {
-                "skill_id": skill_id,
-                "source": evidence.source,
-                "success_count": evidence.success_count,
-                "failure_count": evidence.failure_count,
-                "last_validated_at": evidence.last_validated_at,
-                "positive_patterns": list(evidence.positive_patterns),
-                "negative_patterns": list(evidence.negative_patterns),
-                "known_breakages": list(evidence.known_breakages),
-            })
-            await db.commit()
+        params = {
+            "skill_id": skill_id,
+            "source": evidence.source,
+            "success_count": evidence.success_count,
+            "failure_count": evidence.failure_count,
+            "last_validated_at": evidence.last_validated_at,
+            "positive_patterns": list(evidence.positive_patterns),
+            "negative_patterns": list(evidence.negative_patterns),
+            "known_breakages": list(evidence.known_breakages),
+        }
+        if session is not None:
+            await session.execute(sql, params)
+        else:
+            async with self._db_factory() as db:
+                await db.execute(sql, params)
+                await db.commit()
 
     async def get_by_id(self, skill_id: str) -> SkillSpec | None:
         """Return a single skill spec by ID, or None."""
@@ -273,19 +313,29 @@ class SkillStore:
                 return None
             return _row_to_spec(row)
 
-    async def disable(self, skill_id: str) -> None:
+    async def disable(
+        self, skill_id: str, *, session: AsyncSession | None = None
+    ) -> None:
         """Mark a skill as disabled (soft-delete)."""
         sql = text(
             f"UPDATE {DB_SCHEMA}.skill_specs SET disabled = true, updated_at = now() "
             "WHERE id = :skill_id"
         )
-        async with self._db_factory() as db:
-            await db.execute(sql, {"skill_id": skill_id})
-            await db.commit()
+        if session is not None:
+            await session.execute(sql, {"skill_id": skill_id})
+        else:
+            async with self._db_factory() as db:
+                await db.execute(sql, {"skill_id": skill_id})
+                await db.commit()
 
     # ── governance ledger helpers ──
 
-    async def create_proposal(self, proposal: GrowthProposal) -> int:
+    async def create_proposal(
+        self,
+        proposal: GrowthProposal,
+        *,
+        session: AsyncSession | None = None,
+    ) -> int:
         """Insert a new governance ledger entry (status='proposed'). Returns governance_version."""
         sql = text(f"""
             INSERT INTO {DB_SCHEMA}.skill_spec_versions
@@ -294,18 +344,24 @@ class SkillStore:
                 (:skill_id, 'proposed', :proposal, :created_by)
             RETURNING governance_version
         """)
+        params = {
+            "skill_id": proposal.object_id,
+            "proposal": {
+                "intent": proposal.intent,
+                "risk_notes": proposal.risk_notes,
+                "diff_summary": proposal.diff_summary,
+                "evidence_refs": list(proposal.evidence_refs),
+                "payload": proposal.payload,
+            },
+            "created_by": proposal.proposed_by,
+        }
+        if session is not None:
+            result = await session.execute(sql, params)
+            row = result.first()
+            assert row is not None  # RETURNING always returns a row
+            return row.governance_version  # type: ignore[union-attr]
         async with self._db_factory() as db:
-            result = await db.execute(sql, {
-                "skill_id": proposal.object_id,
-                "proposal": {
-                    "intent": proposal.intent,
-                    "risk_notes": proposal.risk_notes,
-                    "diff_summary": proposal.diff_summary,
-                    "evidence_refs": list(proposal.evidence_refs),
-                    "payload": proposal.payload,
-                },
-                "created_by": proposal.proposed_by,
-            })
+            result = await db.execute(sql, params)
             row = result.first()
             assert row is not None  # RETURNING always returns a row
             gv = row.governance_version  # type: ignore[union-attr]
@@ -352,6 +408,7 @@ class SkillStore:
         *,
         applied_at: datetime | None = None,
         rolled_back_from: int | None = None,
+        session: AsyncSession | None = None,
     ) -> None:
         """Update the status of a governance ledger entry."""
         sql = text(f"""
@@ -361,14 +418,18 @@ class SkillStore:
                 rolled_back_from = :rolled_back_from
             WHERE governance_version = :gv
         """)
-        async with self._db_factory() as db:
-            await db.execute(sql, {
-                "gv": governance_version,
-                "status": status.value,
-                "applied_at": applied_at,
-                "rolled_back_from": rolled_back_from,
-            })
-            await db.commit()
+        params = {
+            "gv": governance_version,
+            "status": status.value,
+            "applied_at": applied_at,
+            "rolled_back_from": rolled_back_from,
+        }
+        if session is not None:
+            await session.execute(sql, params)
+        else:
+            async with self._db_factory() as db:
+                await db.execute(sql, params)
+                await db.commit()
 
     # ── internal helpers used by the adapter ──
 

@@ -393,3 +393,97 @@ class TestFindLastApplied:
         store = SkillStore(factory)
         rec = await store.find_last_applied("sk-nonexistent")
         assert rec is None
+
+
+# ---------------------------------------------------------------------------
+# External-session support (transaction + session= kwarg)
+# ---------------------------------------------------------------------------
+
+
+class TestUpsertActiveWithSession:
+    @pytest.mark.asyncio
+    async def test_uses_provided_session(self) -> None:
+        factory, _ = _make_mock_session_factory()
+        store = SkillStore(factory)
+
+        ext_session = AsyncMock()
+        ext_session.execute = AsyncMock()
+        spec = _make_skill_spec()
+        evidence = _make_evidence()
+        await store.upsert_active(spec, evidence, session=ext_session)
+
+        # Should have called execute on the external session, not the factory session
+        assert ext_session.execute.await_count == 2
+        # Factory session should NOT have been used
+        assert factory.call_count == 0
+
+
+class TestUpdateProposalStatusWithSession:
+    @pytest.mark.asyncio
+    async def test_uses_provided_session(self) -> None:
+        factory, _ = _make_mock_session_factory()
+        store = SkillStore(factory)
+
+        ext_session = AsyncMock()
+        ext_session.execute = AsyncMock()
+        now = datetime.now(UTC)
+        await store.update_proposal_status(
+            1, GrowthLifecycleStatus.active, applied_at=now, session=ext_session
+        )
+        ext_session.execute.assert_awaited_once()
+        assert factory.call_count == 0
+
+
+class TestDisableWithSession:
+    @pytest.mark.asyncio
+    async def test_uses_provided_session(self) -> None:
+        factory, _ = _make_mock_session_factory()
+        store = SkillStore(factory)
+
+        ext_session = AsyncMock()
+        ext_session.execute = AsyncMock()
+        await store.disable("sk-001", session=ext_session)
+        ext_session.execute.assert_awaited_once()
+        assert factory.call_count == 0
+
+
+class TestCreateProposalWithSession:
+    @pytest.mark.asyncio
+    async def test_uses_provided_session(self) -> None:
+        factory, _ = _make_mock_session_factory()
+        store = SkillStore(factory)
+
+        ext_session = AsyncMock()
+        returning_row = SimpleNamespace(governance_version=99)
+        mock_result = MagicMock()
+        mock_result.first.return_value = returning_row
+        ext_session.execute = AsyncMock(return_value=mock_result)
+
+        proposal = GrowthProposal(
+            object_kind=GrowthObjectKind.skill_spec,
+            object_id="sk-001",
+            intent="Create",
+            risk_notes="Low",
+            diff_summary="New",
+        )
+        gv = await store.create_proposal(proposal, session=ext_session)
+        assert gv == 99
+        ext_session.execute.assert_awaited_once()
+        assert factory.call_count == 0
+
+
+class TestTransaction:
+    @pytest.mark.asyncio
+    async def test_yields_session(self) -> None:
+        factory, session = _make_mock_session_factory()
+
+        # Mock session.begin() as an async context manager
+        begin_ctx = AsyncMock()
+        begin_ctx.__aenter__ = AsyncMock(return_value=None)
+        begin_ctx.__aexit__ = AsyncMock(return_value=None)
+        session.begin = MagicMock(return_value=begin_ctx)
+
+        store = SkillStore(factory)
+        async with store.transaction() as txn_session:
+            assert txn_session is session
+        session.begin.assert_called_once()
