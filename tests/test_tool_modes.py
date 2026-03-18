@@ -859,3 +859,74 @@ class TestSessionSettingsValidation:
         s = Settings()
         assert hasattr(s, "session")
         assert s.session.default_mode == "chat_safe"
+
+
+# ===========================================================================
+# 12. ToolRegistry.unregister / replace (P2-M1c wrapper_tool support)
+# ===========================================================================
+
+class TestRegistryUnregister:
+    def test_unregister_removes_tool(self):
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        assert reg.get("safe_tool") is not None
+        reg.unregister("safe_tool")
+        assert reg.get("safe_tool") is None
+
+    def test_unregister_removes_mode_overrides(self):
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        reg.set_mode_override("safe_tool", frozenset({ToolMode.coding}))
+        reg.unregister("safe_tool")
+        # Re-registering should not inherit old overrides
+        reg.register(_ChatSafeTool())
+        effective = reg.get_effective_modes("safe_tool")
+        assert effective == frozenset({ToolMode.chat_safe, ToolMode.coding})
+
+    def test_unregister_not_found_raises(self):
+        reg = ToolRegistry()
+        with pytest.raises(KeyError, match="not registered"):
+            reg.unregister("nonexistent")
+
+    def test_unregister_makes_tool_invisible(self):
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        reg.unregister("safe_tool")
+        tools = reg.list_tools(ToolMode.chat_safe)
+        assert len(tools) == 0
+        assert reg.check_mode("safe_tool", ToolMode.chat_safe) is False
+
+
+class TestRegistryReplace:
+    def test_replace_existing_tool(self):
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        old = reg.get("safe_tool")
+        assert old is not None
+        new_tool = _ChatSafeTool()
+        reg.replace(new_tool)
+        replaced = reg.get("safe_tool")
+        assert replaced is new_tool
+        assert replaced is not old
+
+    def test_replace_new_tool(self):
+        reg = ToolRegistry()
+        tool = _CodingOnlyTool()
+        reg.replace(tool)
+        assert reg.get("coding_tool") is tool
+
+    def test_replace_clears_mode_overrides(self):
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        reg.set_mode_override("safe_tool", frozenset({ToolMode.coding}))
+        assert reg.check_mode("safe_tool", ToolMode.chat_safe) is False
+        reg.replace(_ChatSafeTool())
+        # Overrides cleared, so chat_safe should be back
+        assert reg.check_mode("safe_tool", ToolMode.chat_safe) is True
+
+    def test_replace_does_not_raise_for_duplicate(self):
+        """Unlike register(), replace() must not raise on existing name."""
+        reg = ToolRegistry()
+        reg.register(_ChatSafeTool())
+        reg.replace(_ChatSafeTool())  # should not raise
+        assert reg.get("safe_tool") is not None

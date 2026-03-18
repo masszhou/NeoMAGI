@@ -122,6 +122,33 @@ async def _run_startup_preflight(app, settings, engine):
         )
 
 
+def _build_governance_engine(db_session_factory, evolution_engine, skill_store, tool_registry):
+    """Build governance engine with all onboarded adapters."""
+    from src.growth.adapters.skill import SkillGovernedObjectAdapter
+    from src.growth.adapters.soul import SoulGovernedObjectAdapter
+    from src.growth.adapters.wrapper_tool import WrapperToolGovernedObjectAdapter
+    from src.growth.engine import GrowthGovernanceEngine
+    from src.growth.policies import PolicyRegistry
+    from src.growth.types import GrowthObjectKind
+    from src.wrappers.store import WrapperToolStore
+
+    soul_adapter = SoulGovernedObjectAdapter(evolution_engine)
+    skill_adapter = SkillGovernedObjectAdapter(skill_store)
+    wrapper_tool_store = WrapperToolStore(db_session_factory)
+    wrapper_tool_adapter = WrapperToolGovernedObjectAdapter(
+        wrapper_tool_store, tool_registry
+    )
+    policy_registry = PolicyRegistry()
+    return GrowthGovernanceEngine(
+        adapters={
+            GrowthObjectKind.soul: soul_adapter,
+            GrowthObjectKind.skill_spec: skill_adapter,
+            GrowthObjectKind.wrapper_tool: wrapper_tool_adapter,
+        },
+        policy_registry=policy_registry,
+    )
+
+
 def _build_memory_and_tools(settings, db_session_factory):
     """Build memory stack + tool registry + skill runtime (incl. learner)."""
     memory_indexer = MemoryIndexer(db_session_factory, settings.memory)
@@ -139,12 +166,6 @@ def _build_memory_and_tools(settings, db_session_factory):
         evolution_engine=evolution_engine,
     )
 
-    # ── skill runtime (P2-M1b-P3/P4) ──
-    from src.growth.adapters.skill import SkillGovernedObjectAdapter
-    from src.growth.adapters.soul import SoulGovernedObjectAdapter
-    from src.growth.engine import GrowthGovernanceEngine
-    from src.growth.policies import PolicyRegistry
-    from src.growth.types import GrowthObjectKind
     from src.skills.learner import SkillLearner
     from src.skills.projector import SkillProjector
     from src.skills.resolver import SkillResolver
@@ -154,15 +175,8 @@ def _build_memory_and_tools(settings, db_session_factory):
     skill_resolver = SkillResolver(registry=skill_store)
     skill_projector = SkillProjector()
 
-    soul_adapter = SoulGovernedObjectAdapter(evolution_engine)
-    skill_adapter = SkillGovernedObjectAdapter(skill_store)
-    policy_registry = PolicyRegistry()
-    governance_engine = GrowthGovernanceEngine(
-        adapters={
-            GrowthObjectKind.soul: soul_adapter,
-            GrowthObjectKind.skill_spec: skill_adapter,
-        },
-        policy_registry=policy_registry,
+    governance_engine = _build_governance_engine(
+        db_session_factory, evolution_engine, skill_store, tool_registry
     )
     skill_learner = SkillLearner(skill_store, governance_engine)
 

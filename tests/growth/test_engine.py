@@ -156,12 +156,11 @@ class TestListSupportedKinds:
 class TestUnsupportedKindReserved:
     """Reserved kinds (no adapter, not onboarded) must raise UnsupportedGrowthObjectError.
 
-    Note: skill_spec is onboarded as of P2-M1b; it is tested under
-    TestOnboardedButNoAdapter instead.
+    Note: skill_spec is onboarded as of P2-M1b, wrapper_tool as of P2-M1c;
+    they are tested under TestOnboardedButNoAdapter instead.
     """
 
     _RESERVED_KINDS = [
-        GrowthObjectKind.wrapper_tool,
         GrowthObjectKind.procedure_spec,
         GrowthObjectKind.memory_application_spec,
     ]
@@ -233,3 +232,11 @@ class TestOnboardedButNoAdapter:
         """skill_spec is onboarded (P2-M1b) but engine only has soul adapter."""
         with pytest.raises(UnsupportedGrowthObjectError, match="No adapter registered"):
             await engine.evaluate(GrowthObjectKind.skill_spec, 1)
+
+    @pytest.mark.asyncio
+    async def test_wrapper_tool_raises_when_adapter_missing(
+        self, engine: GrowthGovernanceEngine
+    ) -> None:
+        """wrapper_tool is onboarded (P2-M1c) but engine only has soul adapter."""
+        with pytest.raises(UnsupportedGrowthObjectError, match="No adapter registered"):
+            await engine.evaluate(GrowthObjectKind.wrapper_tool, 1)

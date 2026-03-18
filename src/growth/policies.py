@@ -31,17 +31,17 @@ _KIND_POLICIES: dict[GrowthObjectKind, GrowthKindPolicy] = {
     ),
     GrowthObjectKind.wrapper_tool: GrowthKindPolicy(
         kind=GrowthObjectKind.wrapper_tool,
-        onboarding_state=GrowthOnboardingState.reserved,
+        onboarding_state=GrowthOnboardingState.onboarded,
         requires_explicit_approval=True,
-        adapter_name=None,
-        notes="Reserved for P2-M1b+",
+        adapter_name="wrapper_tool",
+        notes="Onboarded in P2-M1c. Single-turn governed capability unit.",
     ),
     GrowthObjectKind.procedure_spec: GrowthKindPolicy(
         kind=GrowthObjectKind.procedure_spec,
         onboarding_state=GrowthOnboardingState.reserved,
         requires_explicit_approval=True,
         adapter_name=None,
-        notes="Reserved for P2-M1c+",
+        notes="Reserved for P2-M2. Stateful/multi-turn runtime deferred.",
     ),
     GrowthObjectKind.memory_application_spec: GrowthKindPolicy(
         kind=GrowthObjectKind.memory_application_spec,
