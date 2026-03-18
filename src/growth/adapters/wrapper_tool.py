@@ -44,17 +44,18 @@ _IMPL_REF_PATTERN = re.compile(r"^[\w.]+:[\w]+$")
 # ---------------------------------------------------------------------------
 
 
-def _check_typed_io_validation(spec: WrapperToolSpec) -> dict:
-    """Check 1: input_schema and output_schema are valid JSON Schema dicts."""
+def _validate_schema_field(schema: object, field_name: str) -> str | None:
+    """Return an error string if *schema* is not a valid JSON Schema dict, else None."""
+    if not isinstance(schema, dict):
+        return f"{field_name} is not a dict"
+    if "type" not in schema:
+        return f"{field_name} missing 'type' key"
+    return None
+
+
+def _validate_required_fields(spec: WrapperToolSpec) -> list[str]:
+    """Return error strings for missing/invalid identity fields on *spec*."""
     errors: list[str] = []
-    if not isinstance(spec.input_schema, dict):
-        errors.append("input_schema is not a dict")
-    elif "type" not in spec.input_schema:
-        errors.append("input_schema missing 'type' key")
-    if not isinstance(spec.output_schema, dict):
-        errors.append("output_schema is not a dict")
-    elif "type" not in spec.output_schema:
-        errors.append("output_schema missing 'type' key")
     if not spec.id:
         errors.append("id is empty")
     if not spec.capability:
@@ -63,6 +64,18 @@ def _check_typed_io_validation(spec: WrapperToolSpec) -> dict:
         errors.append("summary is empty")
     if spec.version < 1:
         errors.append(f"version must be >= 1, got {spec.version}")
+    return errors
+
+
+def _check_typed_io_validation(spec: WrapperToolSpec) -> dict:
+    """Check 1: input_schema and output_schema are valid JSON Schema dicts."""
+    errors: list[str] = []
+    schema_pairs = ((spec.input_schema, "input_schema"), (spec.output_schema, "output_schema"))
+    for schema, name in schema_pairs:
+        err = _validate_schema_field(schema, name)
+        if err:
+            errors.append(err)
+    errors.extend(_validate_required_fields(spec))
     passed = len(errors) == 0
     return {
         "name": "typed_io_validation",
