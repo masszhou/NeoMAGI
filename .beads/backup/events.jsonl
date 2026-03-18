@@ -1256,3 +1256,5 @@
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T23:12:33Z","event_type":"closed","id":1387,"issue_id":"NeoMAGI-43b","new_value":"Extended ADR 0055 so workspace/artifacts canonical entities use an ADR 0053-aligned artifact_id system","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T23:16:35Z","event_type":"created","id":1388,"issue_id":"NeoMAGI-91c","new_value":"","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T23:17:29Z","event_type":"closed","id":1389,"issue_id":"NeoMAGI-91c","new_value":"Drafted proposed ADR 0057 route-guiding principle and updated decisions index","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T23:20:17Z","event_type":"created","id":1390,"issue_id":"NeoMAGI-vcl","new_value":"","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T23:21:40Z","event_type":"closed","id":1391,"issue_id":"NeoMAGI-vcl","new_value":"Narrowed ADR 0056 to onboarding and governance boundary, removing implementation-level wiring details","old_value":""}
