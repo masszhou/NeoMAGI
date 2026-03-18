@@ -123,7 +123,7 @@ async def _run_startup_preflight(app, settings, engine):
 
 
 def _build_memory_and_tools(settings, db_session_factory):
-    """Build memory stack + tool registry."""
+    """Build memory stack + tool registry + skill runtime (incl. learner)."""
     memory_indexer = MemoryIndexer(db_session_factory, settings.memory)
     memory_searcher = MemorySearcher(db_session_factory, settings.memory)
     memory_writer = MemoryWriter(settings.workspace_dir, settings.memory, indexer=memory_indexer)
@@ -139,7 +139,13 @@ def _build_memory_and_tools(settings, db_session_factory):
         evolution_engine=evolution_engine,
     )
 
-    # ── skill runtime (P2-M1b-P3) ──
+    # ── skill runtime (P2-M1b-P3/P4) ──
+    from src.growth.adapters.skill import SkillGovernedObjectAdapter
+    from src.growth.adapters.soul import SoulGovernedObjectAdapter
+    from src.growth.engine import GrowthGovernanceEngine
+    from src.growth.policies import PolicyRegistry
+    from src.growth.types import GrowthObjectKind
+    from src.skills.learner import SkillLearner
     from src.skills.projector import SkillProjector
     from src.skills.resolver import SkillResolver
     from src.skills.store import SkillStore
@@ -148,12 +154,28 @@ def _build_memory_and_tools(settings, db_session_factory):
     skill_resolver = SkillResolver(registry=skill_store)
     skill_projector = SkillProjector()
 
-    return memory_searcher, evolution_engine, tool_registry, skill_resolver, skill_projector
+    soul_adapter = SoulGovernedObjectAdapter(evolution_engine)
+    skill_adapter = SkillGovernedObjectAdapter(skill_store)
+    policy_registry = PolicyRegistry()
+    governance_engine = GrowthGovernanceEngine(
+        adapters={
+            GrowthObjectKind.soul: soul_adapter,
+            GrowthObjectKind.skill_spec: skill_adapter,
+        },
+        policy_registry=policy_registry,
+    )
+    skill_learner = SkillLearner(skill_store, governance_engine)
+
+    return (
+        memory_searcher, evolution_engine, tool_registry,
+        skill_resolver, skill_projector, skill_learner,
+    )
 
 
 def _build_provider_registry(settings, session_manager, memory_searcher,
                              evolution_engine, tool_registry, health_tracker,
-                             skill_resolver=None, skill_projector=None):
+                             skill_resolver=None, skill_projector=None,
+                             skill_learner=None):
     """Register OpenAI + optional Gemini providers."""
     def _make_agent_loop(client: OpenAICompatModelClient, model: str) -> AgentLoop:
         return AgentLoop(
@@ -163,6 +185,7 @@ def _build_provider_registry(settings, session_manager, memory_searcher,
             session_settings=settings.session, memory_settings=settings.memory,
             memory_searcher=memory_searcher, evolution_engine=evolution_engine,
             skill_resolver=skill_resolver, skill_projector=skill_projector,
+            skill_learner=skill_learner,
         )
 
     registry = AgentLoopRegistry(default_provider=settings.provider.active)
@@ -244,13 +267,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     (
         memory_searcher, evolution_engine, tool_registry,
-        skill_resolver, skill_projector,
+        skill_resolver, skill_projector, skill_learner,
     ) = _build_memory_and_tools(settings, db_session_factory)
     health_tracker = ComponentHealthTracker()
     registry = _build_provider_registry(
         settings, session_manager, memory_searcher,
         evolution_engine, tool_registry, health_tracker,
         skill_resolver=skill_resolver, skill_projector=skill_projector,
+        skill_learner=skill_learner,
     )
     budget_gate = BudgetGate(engine, schema=settings.database.schema_)
     _bind_app_state(app, registry=registry, session_manager=session_manager,

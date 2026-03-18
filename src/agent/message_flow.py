@@ -595,7 +595,8 @@ async def _finalize_task_terminal(
     """Unified post-run-learning entry point.
 
     Called at task terminal states (assistant_response, max_iterations).
-    tool_failure and guard_denied paths will be integrated in P4.
+    Records outcome evidence for resolved skills, and logs teaching intent
+    when detected (V1: log only, no automatic skill creation).
     """
     if loop._skill_learner is None or not state.resolved_skills:
         return
@@ -611,6 +612,14 @@ async def _finalize_task_terminal(
         await loop._skill_learner.record_outcome(list(state.resolved_skills), outcome)
     except Exception:
         _agent_logger().exception("post_run_learning_failed", session_id=state.session_id)
+
+    # V1: teaching intent detection — log only, no automatic skill creation.
+    if state.teaching_intent:
+        _agent_logger().info(
+            "teaching_intent_detected",
+            session_id=state.session_id,
+            has_resolved_skills=bool(state.resolved_skills),
+        )
 
 
 def _agent_logger():
