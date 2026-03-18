@@ -424,11 +424,68 @@
 - Next: 主线下一步应进入 `P2-M1b`，而不是跳到 `P2-M2`；建议先产出 `dev_docs/plans/phase2/` 下的 `P2-M1b` draft，范围聚焦 `skill object runtime + builder runtime + beads work memory` 的最小可用闭环，明天从该 draft 开始继续
 - Risk: `P2-M1b` 仍是高复杂度阶段，若不先压成最小闭环，容易把 `skill object`、builder 产品化、work memory 与 promote 规则一次性耦合过深
 
-<!-- devcoord:begin milestone=p2-m1b -->
-## 2026-03-17 (generated) | P2-M1B
-- Status: in_progress
-- Done: control plane initialized
-- Evidence: `dev_docs/logs/phase2/p2-m1b_2026-03-17/gate_state.md`, `dev_docs/logs/phase2/p2-m1b_2026-03-17/watchdog_status.md`
-- Next: 等待 P2-M1B 下一条 gate 或 phase 指令
+## 2026-03-17 (local) | P2-M1b Prep: Growth Eval Contract
+- Status: done
+- Done: P2-M1b 前置设计收敛完成 — GrowthEvalContract 作为一等治理对象落地（ADR 0054），四层 eval 结构 (Boundary gates / Effect evidence / Scope claim / Efficiency metrics) 固化，5 个 object-scoped contract profiles 实现（soul V1 + skill_spec V1 + 3 reserved skeletons），SoulGovernedObjectAdapter.evaluate() contract pinning 接入，GLOSSARY.md 新增 12 条评测词汇
+- Detail:
+  - WP1: Contract Vocabulary Freeze — `design_docs/GLOSSARY.md` 12 条术语
+  - WP2: `soul` Contract Profile — SOUL_EVAL_CONTRACT_V1，pin `contract_id` + `contract_version` 到 eval result
+  - WP3: `skill_spec` Contract Profile — SKILL_SPEC_EVAL_CONTRACT_V1，5 required checks (schema_validity, activation_correctness, projection_safety, learning_discipline, scope_claim_consistency)
+  - WP4: Reserved Kind Templates — wrapper_tool / procedure_spec / memory_application_spec contract skeletons
+  - WP5: Plan Integration — 结论回填到 P2-M1b draft 的 SkillGovernedObjectAdapter.evaluate() 设计
+- Evidence: commit `07d1539`; 45 new tests in test_contracts.py; `src/growth/contracts.py` 5 profiles; `src/growth/types.py` GrowthEvalContract + PassRuleKind
+- Plan: `dev_docs/plans/phase2/p2-m1b-prep_growth-eval-contract_2026-03-15.md`
+- Decisions: ADR 0054 (growth eval contracts immutable and object-scoped)
+- Next: 进入 P2-M1b 实施
 - Risk: 无
-<!-- devcoord:end milestone=p2-m1b -->
+
+## 2026-03-18 (local) | P2-M1b closeout
+- Status: done
+- Done: P2-M1b Skill Objects Runtime 全部完成（Agent Teams PM 协调，5 Phase + 1 P1-fix，5 Gate 全通过）— skill object domain model、PostgreSQL 持久化（current-state + governance ledger）、SkillStore + SkillGovernedObjectAdapter（5 deterministic eval checks, atomic apply/rollback）、SkillResolver + SkillProjector（规则驱动, delta budget 3/9）、SkillLearner（deterministic evidence 更新 + governance 路径 proposal）、PromptBuilder + AgentLoop pre-plan/post-run-learning join point 集成、composition root 完整 wiring
+- Detail:
+  - Phase 0: Domain Types + DB Migration — SkillSpec/SkillEvidence/ResolvedSkillView/TaskFrame/TaskOutcome/SkillRegistry(Protocol), Alembic migration (skill_specs + skill_evidence + skill_spec_versions)
+  - Phase 1: SkillStore + Governance Adapter — PostgreSQL raw SQL store, SkillGovernedObjectAdapter (pins SKILL_SPEC_EVAL_CONTRACT_V1), PolicyRegistry skill_spec→onboarded; **P1-fix**: apply()/rollback() 事务原子性修复 (transaction() context manager + session injection)
+  - Phase 2: TaskFrame + Resolver + Projector — extract_task_frame() 规则抽取 (CN+EN keywords), SkillResolver (SkillRegistry protocol, keyword overlap scoring, top 1-3), SkillProjector (delta cap 3/9)
+  - Phase 3: PromptBuilder + AgentLoop Integration — _layer_skills(skill_view) 升级, pre-plan join point (TaskFrame→resolve→project), _finalize_task_terminal() post-run-learning, _detect_teaching_intent(), composition root partial wiring
+  - Phase 4: SkillLearner + Creation Path + Tests Closeout — SkillLearner (record_outcome deterministic only, propose_new_skill→governance), GrowthGovernanceEngine full wiring (soul+skill adapters), e2e integration tests
+- Evidence: merge commit `960555c`; 25 files changed, ~4,500 insertions; 1311 tests passed (1246 unit + 65 DB-dependent skipped), ruff clean; 5 tester review reports in `dev_docs/reviews/phase2/p2-m1b_p{0-4}_2026-03-18.md`
+- Plan: `dev_docs/plans/phase2/p2-m1b_skill-objects-runtime_2026-03-14.md`
+- Decisions: ADR 0054 (growth eval contracts immutable and object-scoped)
+- Baseline: 986 → 1311 tests (+325, +33%); 25 new/modified files; skill_spec onboarded as 2nd growth object kind
+- Residual risks:
+  - (LOW) _HIGH_RISK_PATTERN lacks \b on `drop`/`force` — minimal scoring impact
+- Next: P2-M1b 全部关闭；按 `design_docs/phase2/roadmap_milestones_v1.md` 进入 P2-M1c (Growth Cases + Capability Promotion)
+- Risk: 无阻塞风险
+
+## 2026-03-18 (local) | P2-M1b post-review fix
+- Status: done
+- Done: 用户独立审阅发现 4 项问题（2×P1, 2×P2），全部修复并合入 main
+- Detail:
+  - F1 [P1]: Fresh DB 启动路径缺 skill 表 — `ensure_schema()` 新增 `_create_skill_tables()` / `_skill_table_ddl()`，使用 `CREATE TABLE/INDEX IF NOT EXISTS` 幂等创建 skill_specs + skill_evidence + skill_spec_versions
+  - F2 [P1]: 教学/学习闭环未接通 — `RequestState` 新增 `accumulated_failure_signals`；tool denial / tool execution 失败时记录 signals；`_complete_assistant_response()` 根据 signals 判定 terminal_state（guard_denied / tool_failure）；`user_confirmed = teaching_intent`；新增 `_propose_taught_skill()` 调用 `propose_new_skill()`
+  - F3 [P2]: Resolver evidence 排序虚设 — `resolve()` 改为先 fetch 全部 eligible evidence 再评分；`_score()` 接受 evidence 参数，新增 `_score_evidence()`（breakages penalty + recency bonus）和 `_score_escalation()` 子函数
+  - F4 [P2]: 7 个 complexity regressions — 拆分 `_initialize_request_state` / `_handle_tool_calls` / `evaluate` / `apply` / `rollback` / `_score` / `upsert_active` 等超线函数为独立 helper
+  - F5 [补充]: 11 个新测试 — prompt_builder skill 注入 (4)、resolver evidence 排序 (3)、learner 教学意图 proposal (2)、learner 提案验证 (2)
+- Evidence: commit `02a58b3`; `just lint` PASS (0 regressions); `just test` 1320 passed; 8 files changed, 679 insertions, 301 deletions
+- Next: R2 语义修复
+- Risk: 教学闭环语义实现仍有 3 处问题
+
+## 2026-03-18 (local) | P2-M1b post-review fix R2
+- Status: done
+- Done: 用户第二轮审阅发现 3 项教学/学习语义问题，全部修复并合入 main
+- Detail:
+  - F2a [P1]: 教学 proposal 产出 dead skill — `_propose_taught_skill()` 重写为 `_extract_skill_draft_from_context()`，从 task_frame 提取 capability（= task_type）、activation_tags（= task_type + content 关键词 top 5）、delta（= 用户指令文本），使 proposed skill 可被 resolver 命中且有实际 prompt 注入
+  - F2b [P2]: teaching_intent 污染已有 skill evidence — `_finalize_task_terminal()` 不再把 `teaching_intent` 映射为 `user_confirmed`；existing skills 的 `record_outcome` 始终 `user_confirmed=False`，教学意图只触发新 skill proposal
+  - F2c [P2]: guard deny 被误记为 tool_failure — 新增 `_GUARD_DENY_CODES` frozenset（GUARD_CONTRACT_UNAVAILABLE / GUARD_ANCHOR_MISSING / MODE_DENIED），`_execute_single_tool()` 按 error_code 分流 guard_denied vs tool_failure
+- Evidence: commit `4e7e4b1`; 328 tests passed (skills + growth + prompt_builder); complexity 0 regressions; 3 new tests (teaching semantics + guard classification)
+- Next: R3 ID 冲突修复
+- Risk: 教学 proposal ID 同 session 内冲突
+
+## 2026-03-18 (local) | P2-M1b post-review fix R3
+- Status: done
+- Done: 用户第三轮审阅发现教学 proposal ID 同 session 冲突（1×P1），修复并合入 main；用户验收通过
+- Detail:
+  - [P1]: `_propose_taught_skill()` 中 `id=f"user-taught-{session_id[:8]}"` 在同 session 内固定，导致后一次教学 ON CONFLICT upsert 覆盖前一次 — 改为 `uuid4().hex[:12]`，每次 proposal 生成唯一 ID
+- Evidence: commit `b5c9156`; 21 learner tests passed; lint clean
+- Next: P2-M1b 验收通过，全部关闭
+- Risk: 无
