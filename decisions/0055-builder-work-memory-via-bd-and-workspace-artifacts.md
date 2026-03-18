@@ -25,6 +25,10 @@
   - `workspace/artifacts/` = canonical artifact record
   - `bd / beads` = task index、状态入口与 evidence pointer
 - `workspace/memory/` 继续作为对话与显式记忆真源，不承载 builder 过程 artifact。
+- `workspace/artifacts/` 下的 canonical artifact 实体必须采用与 ADR 0053 一致的稳定 ID 制度：
+  - artifact 使用 `artifact_id`
+  - 默认采用 `UUIDv7`
+  - `artifact_id` 必须写入 artifact 真源元数据，而不是只存在 bead 索引或后续 projection 中
 - builder work memory 的 canonical artifact 记录保存在 `workspace/artifacts/` 下，例如：
   - `workspace/artifacts/builder_runs/<run_id>.md`
   - `workspace/artifacts/growth_cases/<case_id>/<run_id>.md`
@@ -50,10 +54,12 @@
 - `workspace/memory` 与 builder artifact 应分层：
   - 前者是真实对话 / 显式记忆
   - 后者是过程证据 / 工作产物
+- 让 artifact 实体直接拥有稳定 `artifact_id`，可以确保其在重命名、移动或重建索引后仍保持身份稳定，而不依赖路径。
 - `workspace/artifacts/` 更适合长文本、结构化快照和运行时工作产物；`bd` 更适合 issue graph、依赖、状态和评论追加。
 - 将 canonical artifact record 放在 `workspace/artifacts/`，可以避免把 bead metadata / comments 继续膨胀成新的高熵正文存储层，也能避免把过程证据误塞进 `dev_docs/`。
 - 不新增 PostgreSQL 表，能保持 `P2-M1c` 复杂度聚焦在 growth case 与 promotion 闭环，而不是再造一层 builder 数据面。
 - 先固定 `artifact-first + bead-index-only` 的方向，可以让后续 feasibility spike 只决定“索引承载多少”，而不是重新争论真源分层。
+- 这里复用 ADR 0053 的稳定 ID 思路，只是为未来的轻量级 artifact link、artifact-to-memory link 和多条思考链路预留身份基础，而不是提前定义知识图谱。
 
 ## 放弃了什么
 
@@ -78,8 +84,10 @@
 - feasibility spike 仍然需要，但它的职责仅限于确认：
   - bead 索引层的最小可行表达
   - 是否需要退化到 `artifact-first + bead-pointer-only`
+- 后续若需要在 artifact 与 memory、artifact 与 artifact 之间建立轻量关联，应优先基于 `artifact_id` / `entry_id` 做 projection，而不是依赖路径。
 - 本 ADR 不固定：
   - 具体 label / state 枚举名字
   - 具体 artifact 模板字段
   - 具体 helper / script 入口
 - “builder work memory” 在本 ADR 中是功能语义，不等同于物理写入 `workspace/memory/` 目录。
+- 本 ADR 不引入完整知识图谱、边模型或 traversal 语义；这里只预留稳定身份。
