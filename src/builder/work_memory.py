@@ -14,14 +14,9 @@ import asyncio
 import json
 from pathlib import Path
 
-import aiofiles
 import structlog
 
-from src.builder.artifact import (
-    generate_artifact_id,
-    render_artifact_markdown,
-    write_artifact,
-)
+from src.builder.artifact import generate_artifact_id, write_artifact
 from src.builder.types import BuilderTaskRecord
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +43,20 @@ async def _run_bd_command(*args: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+async def _try_create_bead(task_brief: str, artifact_id: str) -> str | None:
+    """Best-effort: create a bd issue and return its ID, or None on failure."""
+    ok, output = await _run_bd_command("create", task_brief, "--json")
+    if not ok:
+        return None
+    try:
+        bead_id = json.loads(output).get("id")
+        logger.info("bead_created", bead_id=bead_id, artifact_id=artifact_id)
+        return bead_id
+    except (json.JSONDecodeError, KeyError):
+        logger.warning("bead_create_parse_failed", output=output[:200])
+        return None
+
+
 async def create_builder_task(
     task_brief: str,
     scope: str,
@@ -66,19 +75,7 @@ async def create_builder_task(
     4. Returns the immutable BuilderTaskRecord
     """
     artifact_id = generate_artifact_id()
-    bead_id: str | None = None
-
-    # Best-effort: create bd issue as index entry
-    ok, output = await _run_bd_command(
-        "create", task_brief, "--json",
-    )
-    if ok:
-        try:
-            data = json.loads(output)
-            bead_id = data.get("id")
-            logger.info("bead_created", bead_id=bead_id, artifact_id=artifact_id)
-        except (json.JSONDecodeError, KeyError):
-            logger.warning("bead_create_parse_failed", output=output[:200])
+    bead_id = await _try_create_bead(task_brief, artifact_id)
 
     record = BuilderTaskRecord(
         artifact_id=artifact_id,
@@ -93,74 +90,43 @@ async def create_builder_task(
 
     await write_artifact(record, base_dir)
 
-    # Best-effort: add artifact path as comment on bead
     if bead_id:
         artifact_path = base_dir / "builder_runs" / f"{artifact_id}.md"
         await _run_bd_command(
-            "comments", "add", bead_id,
-            f"artifact: {artifact_path}",
+            "comments", "add", bead_id, f"artifact: {artifact_path}",
         )
 
     return record
 
 
+_UPDATABLE_FIELDS: tuple[str, ...] = (
+    "decision_snapshots", "todo_items", "blockers", "artifact_refs",
+    "validation_summary", "promote_candidates", "next_recommended_action",
+)
+
+
 async def update_task_progress(
     record: BuilderTaskRecord,
     base_dir: Path,
-    *,
-    decision_snapshots: tuple[str, ...] | None = None,
-    todo_items: tuple[str, ...] | None = None,
-    blockers: tuple[str, ...] | None = None,
-    artifact_refs: tuple[str, ...] | None = None,
-    validation_summary: str | None = None,
-    promote_candidates: tuple[str, ...] | None = None,
-    next_recommended_action: str | None = None,
+    **kwargs: object,
 ) -> BuilderTaskRecord:
     """Update a builder task's progress: re-render artifact + optional bead comment.
 
-    Creates a new immutable record (frozen model) with updated fields,
-    overwrites the artifact file, and best-effort posts a progress
-    comment to the linked bead.
+    Accepts any subset of updatable fields as keyword arguments (see
+    ``_UPDATABLE_FIELDS``).  Creates a new immutable record (frozen model),
+    overwrites the artifact file via ``write_artifact``, and best-effort
+    posts a progress comment to the linked bead.
     """
-    updates: dict[str, object] = {}
-    if decision_snapshots is not None:
-        updates["decision_snapshots"] = decision_snapshots
-    if todo_items is not None:
-        updates["todo_items"] = todo_items
-    if blockers is not None:
-        updates["blockers"] = blockers
-    if artifact_refs is not None:
-        updates["artifact_refs"] = artifact_refs
-    if validation_summary is not None:
-        updates["validation_summary"] = validation_summary
-    if promote_candidates is not None:
-        updates["promote_candidates"] = promote_candidates
-    if next_recommended_action is not None:
-        updates["next_recommended_action"] = next_recommended_action
-
+    updates = {k: v for k, v in kwargs.items() if k in _UPDATABLE_FIELDS and v is not None}
     updated = record.model_copy(update=updates)
 
-    # Overwrite artifact file
-    target_dir = base_dir / "builder_runs"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    file_path = target_dir / f"{updated.artifact_id}.md"
-    content = render_artifact_markdown(updated)
+    await write_artifact(updated, base_dir)
+    logger.info("artifact_updated", artifact_id=updated.artifact_id, fields=list(updates.keys()))
 
-    async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-        await f.write(content)
-
-    logger.info(
-        "artifact_updated",
-        artifact_id=updated.artifact_id,
-        fields=list(updates.keys()),
-    )
-
-    # Best-effort: post progress comment to bead
     if updated.bead_id and updates:
         summary = ", ".join(updates.keys())
         await _run_bd_command(
-            "comments", "add", updated.bead_id,
-            f"progress update: {summary}",
+            "comments", "add", updated.bead_id, f"progress update: {summary}",
         )
 
     return updated

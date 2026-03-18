@@ -31,63 +31,39 @@ def generate_artifact_id() -> str:
     return str(uuid.uuid4())
 
 
+def _render_list_section(
+    lines: list[str], heading: str, items: tuple[str, ...], *, prefix: str = "- ",
+) -> None:
+    """Append a markdown section with a bullet list if *items* is non-empty."""
+    if not items:
+        return
+    lines += [f"## {heading}", ""]
+    lines += [f"{prefix}{item}" for item in items]
+    lines.append("")
+
+
+def _render_text_section(lines: list[str], heading: str, text: str | None) -> None:
+    """Append a markdown section with a single text body if *text* is truthy."""
+    if not text:
+        return
+    lines += [f"## {heading}", "", text, ""]
+
+
 def render_artifact_markdown(record: BuilderTaskRecord) -> str:
     """Render a BuilderTaskRecord as a markdown artifact document."""
-    lines: list[str] = []
-    lines.append(f"# Builder Task: {record.task_brief}")
-    lines.append("")
+    lines: list[str] = [f"# Builder Task: {record.task_brief}", ""]
     lines.append(f"- **artifact_id**: `{record.artifact_id}`")
     if record.bead_id:
         lines.append(f"- **bead_id**: `{record.bead_id}`")
-    lines.append(f"- **scope**: {record.scope}")
-    lines.append("")
+    lines += [f"- **scope**: {record.scope}", ""]
 
-    if record.decision_snapshots:
-        lines.append("## Decision Snapshots")
-        lines.append("")
-        for snap in record.decision_snapshots:
-            lines.append(f"- {snap}")
-        lines.append("")
-
-    if record.todo_items:
-        lines.append("## TODO Items")
-        lines.append("")
-        for item in record.todo_items:
-            lines.append(f"- [ ] {item}")
-        lines.append("")
-
-    if record.blockers:
-        lines.append("## Blockers")
-        lines.append("")
-        for blocker in record.blockers:
-            lines.append(f"- {blocker}")
-        lines.append("")
-
-    if record.artifact_refs:
-        lines.append("## Artifact References")
-        lines.append("")
-        for ref in record.artifact_refs:
-            lines.append(f"- {ref}")
-        lines.append("")
-
-    if record.validation_summary:
-        lines.append("## Validation Summary")
-        lines.append("")
-        lines.append(record.validation_summary)
-        lines.append("")
-
-    if record.promote_candidates:
-        lines.append("## Promote Candidates")
-        lines.append("")
-        for candidate in record.promote_candidates:
-            lines.append(f"- {candidate}")
-        lines.append("")
-
-    if record.next_recommended_action:
-        lines.append("## Next Recommended Action")
-        lines.append("")
-        lines.append(record.next_recommended_action)
-        lines.append("")
+    _render_list_section(lines, "Decision Snapshots", record.decision_snapshots)
+    _render_list_section(lines, "TODO Items", record.todo_items, prefix="- [ ] ")
+    _render_list_section(lines, "Blockers", record.blockers)
+    _render_list_section(lines, "Artifact References", record.artifact_refs)
+    _render_text_section(lines, "Validation Summary", record.validation_summary)
+    _render_list_section(lines, "Promote Candidates", record.promote_candidates)
+    _render_text_section(lines, "Next Recommended Action", record.next_recommended_action)
 
     return "\n".join(lines)
 
