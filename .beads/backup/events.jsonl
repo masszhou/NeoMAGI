@@ -1244,3 +1244,5 @@
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T22:25:01Z","event_type":"closed","id":1375,"issue_id":"NeoMAGI-zbg","new_value":"Removed deprecated Dolt remote, rotated stale logs, and revalidated bd health","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T22:27:12Z","event_type":"created","id":1376,"issue_id":"NeoMAGI-0ju","new_value":"","old_value":""}
 {"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T22:32:58Z","event_type":"closed","id":1377,"issue_id":"NeoMAGI-0ju","new_value":"Added a repo-specific dolt wrapper so bd starts Dolt with config.yaml and secure_file_priv set","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T22:39:42Z","event_type":"created","id":1378,"issue_id":"NeoMAGI-ps2","new_value":"","old_value":""}
+{"actor":"Zhiliang Zhou","comment":null,"created_at":"2026-03-18T22:43:54Z","event_type":"closed","id":1379,"issue_id":"NeoMAGI-ps2","new_value":"Generated P2-M1c startup prompt based on the approved plan and PRD_P2_M1b template","old_value":""}
