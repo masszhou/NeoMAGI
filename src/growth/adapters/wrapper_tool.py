@@ -324,14 +324,16 @@ class WrapperToolGovernedObjectAdapter:
     async def apply(self, version: int) -> None:
         """Materialize a passed proposal to wrapper_tools + ToolRegistry.
 
+        P2-M1c does not support in-place upgrade.  If the same
+        ``wrapper_tool_id`` already has an active version, ``apply()``
+        fails closed.  To switch versions: rollback/disable first, then
+        apply the new version.
+
         Compensating-write sequence:
-        1. Validate preconditions (eval passed, status proposed)
+        1. Validate preconditions (eval passed, status proposed, no existing active)
         2. DB transaction: upsert current-state + mark ledger active
         3. After DB commit succeeds: register in ToolRegistry
         4. If registry registration fails: compensate by rolling back DB
-
-        ToolRegistry is mutated *after* the DB commit so that a DB failure
-        never leaves a stale tool in the in-memory registry.
         """
         record = await self._store.get_proposal(version)
         if record is None:
@@ -343,6 +345,15 @@ class WrapperToolGovernedObjectAdapter:
 
         payload = record.proposal.get("payload", {})
         spec = WrapperToolSpec(**payload["wrapper_tool_spec"])
+
+        # Fail-closed: reject apply if same wrapper_tool_id already active
+        existing = await self._store.find_last_applied(spec.id)
+        if existing is not None:
+            raise ValueError(
+                f"Cannot apply version {version}: wrapper_tool '{spec.id}' already has "
+                f"active version {existing.governance_version}; "
+                "in-place upgrade not supported in P2-M1c — rollback/disable first"
+            )
 
         # Step 1: DB writes in transaction (commit on exit)
         async with self._store.transaction() as session:
@@ -463,10 +474,14 @@ class WrapperToolGovernedObjectAdapter:
         return gv
 
     async def veto(self, version: int) -> None:
-        """Veto a proposed or active governance version.
+        """Veto a specific governance version.
 
-        Unapplied proposal -> mark vetoed.
-        Active -> rollback/disable path.
+        - ``proposed`` → mark vetoed (no side effects).
+        - ``active`` → only allowed if *this* version is the current active.
+          Delegates to ``rollback(wrapper_tool_id=…)`` which disables and
+          unregisters.  If the version is active but not the current one
+          (should not happen with the single-active invariant), rejects.
+        - Any other status → rejects.
         """
         record = await self._store.get_proposal(version)
         if record is None:
@@ -480,6 +495,12 @@ class WrapperToolGovernedObjectAdapter:
                 was_status="proposed",
             )
         elif record.status == GrowthLifecycleStatus.active:
+            current = await self._store.find_last_applied(record.wrapper_tool_id)
+            if current is None or current.governance_version != version:
+                raise ValueError(
+                    f"Cannot veto version {version}: it is marked active but is "
+                    f"not the current active version for '{record.wrapper_tool_id}'"
+                )
             await self.rollback(wrapper_tool_id=record.wrapper_tool_id)
             logger.info(
                 "wrapper_tool_adapter_vetoed",

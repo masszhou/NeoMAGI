@@ -96,9 +96,18 @@ def upgrade() -> None:
         ["status"],
         schema=DB_SCHEMA,
     )
+    # Single-active invariant: at most one active version per wrapper_tool_id
+    op.execute(
+        f"CREATE UNIQUE INDEX uq_wrapper_tool_versions_single_active "
+        f"ON {DB_SCHEMA}.wrapper_tool_versions (wrapper_tool_id) "
+        f"WHERE status = 'active'"
+    )
 
 
 def downgrade() -> None:
+    op.execute(
+        f"DROP INDEX IF EXISTS {DB_SCHEMA}.uq_wrapper_tool_versions_single_active"
+    )
     op.drop_index(
         "idx_wrapper_tool_versions_status",
         table_name="wrapper_tool_versions",

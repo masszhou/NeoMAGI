@@ -550,9 +550,11 @@ class TestVeto:
         adapter: WrapperToolGovernedObjectAdapter,
         mock_store: AsyncMock,
     ) -> None:
-        mock_store.get_proposal = AsyncMock(return_value=_make_proposal_record(status="active"))
+        active_record = _make_proposal_record(governance_version=1, status="active")
+        mock_store.get_proposal = AsyncMock(return_value=active_record)
+        mock_store.find_last_applied = AsyncMock(return_value=active_record)
         await adapter.veto(1)
-        mock_store.find_last_applied.assert_awaited()
+        mock_store.remove_active.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_veto_not_found_raises(
@@ -751,3 +753,34 @@ class TestPostReviewRegressions:
         ):
             await adapter.apply(1)
         assert call_order.index("db_upsert") < call_order.index("registry_replace")
+
+    @pytest.mark.asyncio
+    async def test_apply_rejects_when_active_exists(
+        self,
+        adapter: WrapperToolGovernedObjectAdapter,
+        mock_store: AsyncMock,
+    ) -> None:
+        """In-place upgrade must be rejected: rollback/disable first."""
+        mock_store.get_proposal = AsyncMock(return_value=_make_proposal_record(eval_passed=True))
+        existing = _make_proposal_record(governance_version=5, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=existing)
+        with pytest.raises(ValueError, match="already has active version"):
+            await adapter.apply(1)
+        mock_store.upsert_active.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_veto_wrong_active_version_rejects(
+        self,
+        adapter: WrapperToolGovernedObjectAdapter,
+        mock_store: AsyncMock,
+    ) -> None:
+        """veto(old_version) must not affect a newer active version."""
+        # version 1 is marked active in get_proposal
+        old_record = _make_proposal_record(governance_version=1, status="active")
+        mock_store.get_proposal = AsyncMock(return_value=old_record)
+        # but find_last_applied returns version 2 as the current active
+        newer_record = _make_proposal_record(governance_version=2, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=newer_record)
+        with pytest.raises(ValueError, match="not the current active version"):
+            await adapter.veto(1)
+        mock_store.remove_active.assert_not_awaited()
