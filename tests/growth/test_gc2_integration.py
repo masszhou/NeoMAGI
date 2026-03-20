@@ -216,10 +216,16 @@ def gc2_components(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def _stub_importlib(mock_importlib: MagicMock) -> None:
-    """Stub importlib.import_module for dry_run_smoke check."""
+def _stub_importlib(mock_importlib: MagicMock, tool_name: str = "wt-summarize-001") -> None:
+    """Stub importlib.import_module for dry_run_smoke + apply.
+
+    The factory must return a tool whose ``name`` matches ``spec.id``
+    (enforced by the name-binding guard in ``_resolve_and_register``).
+    """
+    mock_tool = MagicMock()
+    mock_tool.name = tool_name
     mock_mod = MagicMock()
-    mock_mod.loads = MagicMock()
+    mock_mod.loads = MagicMock(return_value=mock_tool)
     mock_importlib.import_module.return_value = mock_mod
 
 
@@ -391,24 +397,28 @@ class TestGC2Rollback:
     ) -> None:
         _stub_importlib(mock_importlib)
 
-        run, _gv = await _run_gc2_propose_eval_apply(gc2_components)
+        run, gv = await _run_gc2_propose_eval_apply(gc2_components)
 
         wt_spec: WrapperToolSpec = gc2_components["wt_spec"]
         engine: GrowthGovernanceEngine = gc2_components["engine"]
         runner: CaseRunner = gc2_components["runner"]
         wrapper_store: AsyncMock = gc2_components["wrapper_store"]
 
-        # Reset side_effect for rollback proposal creation
+        # Simulate that find_last_applied returns the active version
+        active_record = _make_wrapper_proposal_record(
+            wt_spec, gv=gv, status="active", eval_passed=True,
+        )
         wrapper_store.create_proposal = AsyncMock(return_value=2)
-        wrapper_store.find_last_applied = AsyncMock(return_value=None)
+        wrapper_store.find_last_applied = AsyncMock(return_value=active_record)
 
         await engine.rollback(
             GrowthObjectKind.wrapper_tool, wrapper_tool_id=wt_spec.id,
         )
         run = await runner.record_rollback(run)
 
+        # Rollback must remove from registry AND disable in store
         gc2_components["mock_registry"].unregister.assert_called_with(wt_spec.id)
-        wrapper_store.remove_active.assert_called_once()
+        wrapper_store.remove_active.assert_called()
 
         final = await runner.finalize(run, summary="Rolled back after apply")
         assert final.status == GrowthCaseStatus.rolled_back

@@ -5,8 +5,8 @@ Implements :class:`GovernedObjectAdapter` protocol for
 
 Pins ``WRAPPER_TOOL_EVAL_CONTRACT_V1`` before every evaluation (ADR 0054 §1a).
 All 5 eval checks are deterministic — no LLM calls, no network access.
-``apply()`` and ``rollback()`` execute in single DB transactions (atomic).
-ToolRegistry registration/unregistration is coupled to the transaction outcome.
+``apply()`` and ``rollback()`` use compensating semantics: DB writes first,
+then ToolRegistry mutation; if registry mutation fails, DB is rolled back.
 """
 
 from __future__ import annotations
@@ -233,16 +233,23 @@ def _resolve_and_register(spec: WrapperToolSpec, registry: ToolRegistry) -> None
 
     Parses ``<module>:<factory>``, imports the module, calls the factory,
     and registers the resulting BaseTool instance.
+
+    Raises ``ValueError`` if factory returns a tool whose ``name`` does not
+    match ``spec.id``.  This prevents registry/store key divergence.
     """
     module_path, factory_name = spec.implementation_ref.rsplit(":", 1)
     mod = importlib.import_module(module_path)
     factory = getattr(mod, factory_name)
     tool = factory()
+    if tool.name != spec.id:
+        raise ValueError(
+            f"Factory returned tool.name={tool.name!r} but spec.id={spec.id!r}; "
+            "they must match to prevent registry/store key divergence"
+        )
     registry.replace(tool)
     logger.info(
         "wrapper_tool_registered",
         wrapper_tool_id=spec.id,
-        tool_name=tool.name,
         implementation_ref=spec.implementation_ref,
     )
 
@@ -315,21 +322,16 @@ class WrapperToolGovernedObjectAdapter:
         return result
 
     async def apply(self, version: int) -> None:
-        """Materialize a passed proposal to wrapper_tools + ToolRegistry (atomic).
+        """Materialize a passed proposal to wrapper_tools + ToolRegistry.
 
-        Five-step write in single transaction:
-        1. Check eval_result.passed == True
-        2. Parse WrapperToolSpec
-        3. Upsert current-state (store)
-        4. Register in ToolRegistry
-        5. Mark ledger row as active
+        Compensating-write sequence:
+        1. Validate preconditions (eval passed, status proposed)
+        2. DB transaction: upsert current-state + mark ledger active
+        3. After DB commit succeeds: register in ToolRegistry
+        4. If registry registration fails: compensate by rolling back DB
 
-        Steps 3-5 execute within a single DB transaction so that a failure
-        in any step rolls back DB writes.  ToolRegistry registration is
-        performed before the ledger update; if ledger update fails, the
-        transaction context manager's rollback triggers, and the caller
-        is responsible for not leaking the registry state (in practice
-        the whole operation is retried or aborted).
+        ToolRegistry is mutated *after* the DB commit so that a DB failure
+        never leaves a stale tool in the in-memory registry.
         """
         record = await self._store.get_proposal(version)
         if record is None:
@@ -342,37 +344,86 @@ class WrapperToolGovernedObjectAdapter:
         payload = record.proposal.get("payload", {})
         spec = WrapperToolSpec(**payload["wrapper_tool_spec"])
 
-        # Atomic: upsert current-state + register tool + update ledger
+        # Step 1: DB writes in transaction (commit on exit)
         async with self._store.transaction() as session:
             await self._store.upsert_active(spec, session=session)
-            _resolve_and_register(spec, self._registry)
             await self._store.update_proposal_status(
                 version,
                 GrowthLifecycleStatus.active,
                 applied_at=datetime.now(UTC),
                 session=session,
             )
+        # DB committed successfully at this point
+
+        # Step 2: registry mutation with compensating rollback on failure
+        try:
+            _resolve_and_register(spec, self._registry)
+        except Exception:
+            logger.error(
+                "wrapper_tool_registry_failed_compensating",
+                governance_version=version,
+                wrapper_tool_id=spec.id,
+            )
+            await self._compensate_failed_apply(version, spec)
+            raise
+
         logger.info(
             "wrapper_tool_adapter_applied",
             governance_version=version,
             wrapper_tool_id=spec.id,
         )
 
-    async def rollback(self, **kwargs: object) -> int:
-        """Rollback to previous applied snapshot or disable.
+    async def _compensate_failed_apply(
+        self, version: int, spec: WrapperToolSpec
+    ) -> None:
+        """Undo DB writes when registry registration fails after DB commit."""
+        try:
+            async with self._store.transaction() as session:
+                await self._store.remove_active(spec.id, session=session)
+                await self._store.update_proposal_status(
+                    version,
+                    GrowthLifecycleStatus.proposed,
+                    session=session,
+                )
+        except Exception:
+            logger.exception(
+                "wrapper_tool_compensate_failed",
+                governance_version=version,
+                wrapper_tool_id=spec.id,
+            )
 
-        Returns the governance_version of the rollback entry.
-        All writes execute within a single DB transaction (atomic).
+    async def rollback(self, **kwargs: object) -> int:
+        """Rollback: remove current active wrapper and disable in store.
+
+        Returns the governance_version of the rollback ledger entry.
+
+        The current version uses a simple disable-on-rollback strategy:
+        the active wrapper is removed from ToolRegistry and disabled in
+        current-state.  Re-applying a previous version requires a new
+        propose→eval→apply cycle.
+
+        DB writes happen first; registry mutation follows with compensating
+        semantics (same pattern as ``apply``).
         """
         wrapper_tool_id = kwargs.get("wrapper_tool_id")
         if not isinstance(wrapper_tool_id, str):
             raise ValueError("rollback() requires wrapper_tool_id as keyword argument")
 
-        last_applied = await self._store.find_last_applied(wrapper_tool_id)
+        current = await self._store.find_last_applied(wrapper_tool_id)
 
+        # Step 1: DB writes
         async with self._store.transaction() as session:
-            await self._restore_or_disable(last_applied, wrapper_tool_id, session)
-            gv = await self._create_rollback_entry(last_applied, wrapper_tool_id, session)
+            await self._store.remove_active(wrapper_tool_id, session=session)
+            if current is not None:
+                await self._store.update_proposal_status(
+                    current.governance_version,
+                    GrowthLifecycleStatus.rolled_back,
+                    session=session,
+                )
+            gv = await self._create_rollback_entry(current, wrapper_tool_id, session)
+
+        # Step 2: registry cleanup (after DB commit)
+        self._unregister_tool(wrapper_tool_id)
 
         logger.info(
             "wrapper_tool_adapter_rolled_back",
@@ -380,22 +431,6 @@ class WrapperToolGovernedObjectAdapter:
             wrapper_tool_id=wrapper_tool_id,
         )
         return gv
-
-    async def _restore_or_disable(self, last_applied, wrapper_tool_id: str, session) -> None:
-        """Re-materialize previous snapshot or disable + unregister."""
-        if last_applied is not None:
-            payload = last_applied.proposal.get("payload", {})
-            spec = WrapperToolSpec(**payload["wrapper_tool_spec"])
-            await self._store.upsert_active(spec, session=session)
-            _resolve_and_register(spec, self._registry)
-            await self._store.update_proposal_status(
-                last_applied.governance_version,
-                GrowthLifecycleStatus.rolled_back,
-                session=session,
-            )
-        else:
-            await self._store.remove_active(wrapper_tool_id, session=session)
-            self._unregister_tool(wrapper_tool_id)
 
     def _unregister_tool(self, wrapper_tool_id: str) -> None:
         """Best-effort unregister from ToolRegistry."""

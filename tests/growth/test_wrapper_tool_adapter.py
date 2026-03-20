@@ -471,17 +471,22 @@ class TestRollback:
         assert remove_call.kwargs.get("session") is session
 
     @pytest.mark.asyncio
-    async def test_with_previous_re_materializes(
+    async def test_with_current_active_disables_and_unregisters(
         self,
         adapter: WrapperToolGovernedObjectAdapter,
         mock_store: AsyncMock,
+        mock_registry: MagicMock,
     ) -> None:
-        prev = _make_proposal_record(governance_version=2, status="active")
-        mock_store.find_last_applied = AsyncMock(return_value=prev)
-        with patch("src.growth.adapters.wrapper_tool._resolve_and_register"):
-            gv = await adapter.rollback(wrapper_tool_id="wt-001")
+        """When an active version exists, rollback disables it and unregisters."""
+        current = _make_proposal_record(governance_version=2, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        gv = await adapter.rollback(wrapper_tool_id="wt-001")
         assert isinstance(gv, int)
-        mock_store.upsert_active.assert_awaited_once()
+        mock_store.remove_active.assert_awaited_once()
+        mock_store.update_proposal_status.assert_any_await(
+            2, GrowthLifecycleStatus.rolled_back, session=mock_store._mock_session
+        )
+        mock_registry.unregister.assert_called_once_with("wt-001")
 
     @pytest.mark.asyncio
     async def test_rollback_passes_session_to_all_writes(
@@ -489,13 +494,12 @@ class TestRollback:
         adapter: WrapperToolGovernedObjectAdapter,
         mock_store: AsyncMock,
     ) -> None:
-        prev = _make_proposal_record(governance_version=2, status="active")
-        mock_store.find_last_applied = AsyncMock(return_value=prev)
-        with patch("src.growth.adapters.wrapper_tool._resolve_and_register"):
-            await adapter.rollback(wrapper_tool_id="wt-001")
+        current = _make_proposal_record(governance_version=2, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        await adapter.rollback(wrapper_tool_id="wt-001")
         session = mock_store._mock_session
-        upsert_call = mock_store.upsert_active.call_args
-        assert upsert_call.kwargs.get("session") is session
+        remove_call = mock_store.remove_active.call_args
+        assert remove_call.kwargs.get("session") is session
         for call in mock_store.update_proposal_status.call_args_list:
             assert call.kwargs.get("session") is session
         create_call = mock_store.create_proposal.call_args
@@ -621,19 +625,21 @@ class TestApplyAtomicity:
         mock_store.update_proposal_status.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_status_update_failure_propagates(
+    async def test_registry_failure_triggers_compensation(
         self,
         adapter: WrapperToolGovernedObjectAdapter,
         mock_store: AsyncMock,
     ) -> None:
+        """[P2 regression] registry failure after DB commit must compensate DB."""
         mock_store.get_proposal = AsyncMock(return_value=_make_proposal_record(eval_passed=True))
-        mock_store.update_proposal_status = AsyncMock(
-            side_effect=RuntimeError("Ledger update failed")
-        )
-        with patch("src.growth.adapters.wrapper_tool._resolve_and_register"):
-            with pytest.raises(RuntimeError, match="Ledger update failed"):
+        with patch(
+            "src.growth.adapters.wrapper_tool._resolve_and_register",
+            side_effect=RuntimeError("factory failed"),
+        ):
+            with pytest.raises(RuntimeError, match="factory failed"):
                 await adapter.apply(1)
-        mock_store.upsert_active.assert_awaited_once()
+        # DB was committed then compensated: remove_active should be called
+        assert mock_store.remove_active.await_count >= 1
 
 
 class TestRollbackAtomicity:
@@ -660,3 +666,88 @@ class TestRollbackAtomicity:
         with pytest.raises(RuntimeError, match="Insert failed"):
             await adapter.rollback(wrapper_tool_id="wt-001")
         mock_store.remove_active.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Post-review regressions: rollback, name binding, compensating semantics
+# ---------------------------------------------------------------------------
+
+
+class TestPostReviewRegressions:
+    """Regression tests for findings [P1] rollback, [P1] name binding, [P2] atomicity."""
+
+    @pytest.mark.asyncio
+    async def test_rollback_removes_active_not_re_upserts(
+        self,
+        adapter: WrapperToolGovernedObjectAdapter,
+        mock_store: AsyncMock,
+        mock_registry: MagicMock,
+    ) -> None:
+        """[P1] rollback must remove_active + unregister, not upsert the same version."""
+        current = _make_proposal_record(governance_version=5, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        await adapter.rollback(wrapper_tool_id="wt-001")
+        # Must disable in store
+        mock_store.remove_active.assert_awaited_once()
+        # Must NOT re-upsert
+        mock_store.upsert_active.assert_not_awaited()
+        # Must unregister from registry
+        mock_registry.unregister.assert_called_once_with("wt-001")
+        # Must mark the active version as rolled_back in ledger
+        rolled_back_calls = [
+            c for c in mock_store.update_proposal_status.call_args_list
+            if c[0][1] == GrowthLifecycleStatus.rolled_back and c[0][0] == 5
+        ]
+        assert len(rolled_back_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_name_mismatch_raises_on_apply(
+        self,
+        adapter: WrapperToolGovernedObjectAdapter,
+        mock_store: AsyncMock,
+        mock_registry: MagicMock,
+    ) -> None:
+        """[P1] factory returning tool.name != spec.id must fail apply."""
+        mock_store.get_proposal = AsyncMock(return_value=_make_proposal_record(eval_passed=True))
+
+        mismatched_tool = MagicMock()
+        mismatched_tool.name = "different-name"
+
+        def bad_factory():
+            return mismatched_tool
+
+        with patch("src.growth.adapters.wrapper_tool.importlib") as mock_imp:
+            mock_mod = MagicMock()
+            mock_mod.loads = bad_factory  # matches "json:loads" ref
+            mock_imp.import_module.return_value = mock_mod
+            with pytest.raises(ValueError, match="must match"):
+                await adapter.apply(1)
+        # Registry should NOT have the mismatched tool
+        mock_registry.replace.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_db_first_then_registry(
+        self,
+        adapter: WrapperToolGovernedObjectAdapter,
+        mock_store: AsyncMock,
+    ) -> None:
+        """[P2] DB writes must complete before registry mutation."""
+        mock_store.get_proposal = AsyncMock(return_value=_make_proposal_record(eval_passed=True))
+        call_order: list[str] = []
+        orig_upsert = mock_store.upsert_active
+
+        async def track_upsert(*a, **kw):
+            call_order.append("db_upsert")
+            return await orig_upsert(*a, **kw)
+
+        mock_store.upsert_active = track_upsert
+
+        def track_register(spec, registry):
+            call_order.append("registry_replace")
+
+        with patch(
+            "src.growth.adapters.wrapper_tool._resolve_and_register",
+            side_effect=track_register,
+        ):
+            await adapter.apply(1)
+        assert call_order.index("db_upsert") < call_order.index("registry_replace")
