@@ -489,3 +489,34 @@
 - Evidence: commit `b5c9156`; 21 learner tests passed; lint clean
 - Next: P2-M1b 验收通过，全部关闭
 - Risk: 无
+
+<!-- devcoord:begin milestone=p2-m1c -->
+## 2026-03-18 (generated) | P2-M1C
+- Status: done
+- Done: 最新 gate g4-review 为 closed (PASS)；backend=closed, tester=closed
+- Evidence: `dev_docs/logs/phase2/p2-m1c_2026-03-18/gate_state.md`, `dev_docs/logs/phase2/p2-m1c_2026-03-18/watchdog_status.md`, `dev_docs/reviews/phase2/p2-m1c_p4_2026-03-18.md` (e6e59cabbbf005dd0a681e04c0986efda7a5f99b)
+- Next: g4-review 已关闭，等待 P2-M1C 下一条 gate
+- Risk: 无
+<!-- devcoord:end milestone=p2-m1c -->
+
+## 2026-03-20 (local) | P2-M1c closeout
+- Status: done
+- Done: P2-M1c Growth Cases + Capability Promotion 全部完成（Agent Teams PM 协调，5 Phase + 3 轮 post-review 修复，5 Gate + 5 Review Gate 全通过，milestone 已关闭）— wrapper_tool 正式 onboarded，GC-1 human_taught_skill_reuse + GC-2 skill_to_wrapper_tool_promotion 两条 curated growth case 完整闭环，builder work memory 双层结构 (workspace/artifacts + bd index)，CaseRunner + GrowthCaseSpec catalog + GrowthCaseRun artifacts
+- Detail:
+  - Phase 0: Contract V1 + GLOSSARY + GC-3 Decision
+  - Phase 1: Builder Work Memory Substrate (BuilderTaskRecord + bd feasibility spike 7/7)
+  - Phase 2: Wrapper Tool Store + Adapter + Runtime Wiring (WrapperToolSpec + WrapperToolStore + WrapperToolGovernedObjectAdapter + Alembic migration + ToolRegistry unregister/replace + policies onboarding + gateway wiring)
+  - Phase 3: Growth Case Catalog + Runner (GrowthCaseSpec catalog + CaseRunner + GC-1/GC-2 integration tests)
+  - Phase 4: Acceptance Closeout (A1~A9 全满足, 1495 tests)
+  - Post-review R1: rollback disable-on-rollback, tool.name==spec.id guard, DB-first compensating semantics
+  - Post-review R2: reject in-place upgrade, version-aware veto, partial unique index
+  - Post-review R3: startup restore of active wrappers to ToolRegistry
+- Evidence: merge to main; PM 总结 `dev_docs/logs/phase2/p2-m1c_2026-03-18/pm.md`; ADR 0055/0056/0057
+- Plan: `dev_docs/plans/phase2/p2-m1c_growth-cases-capability-promotion_2026-03-18.md`
+- Baseline: ~1311 → 1503 tests (+192); 37 new files, ~5200 insertions; wrapper_tool onboarded as 3rd growth object kind
+- Residual risks:
+  - (LOW) uuid4 临时方案，后续升级 UUIDv7
+  - (LOW) promote entry condition 仅测试验证，无生产 runtime enforcement
+  - (LOW) 启动恢复失败时 log+skip，后续可补 degraded health signal
+- Next: P2-M1 全部关闭；按 `design_docs/phase2/roadmap_milestones_v1.md` 进入 P2-M2 (Procedure Runtime 与多 Agent 执行)
+- Risk: 无阻塞风险
