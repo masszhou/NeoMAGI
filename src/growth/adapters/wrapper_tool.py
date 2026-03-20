@@ -1,0 +1,517 @@
+"""Wrapper tool governed-object adapter: connects wrapper_tool to the growth kernel.
+
+Implements :class:`GovernedObjectAdapter` protocol for
+:attr:`GrowthObjectKind.wrapper_tool`.
+
+Pins ``WRAPPER_TOOL_EVAL_CONTRACT_V1`` before every evaluation (ADR 0054 §1a).
+All 5 eval checks are deterministic — no LLM calls, no network access.
+``apply()`` and ``rollback()`` use compensating semantics: DB writes first,
+then ToolRegistry mutation; if registry mutation fails, DB is rolled back.
+"""
+
+from __future__ import annotations
+
+import importlib
+import re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import structlog
+
+from src.growth.contracts import WRAPPER_TOOL_EVAL_CONTRACT_V1
+from src.growth.types import (
+    GrowthEvalResult,
+    GrowthLifecycleStatus,
+    GrowthObjectKind,
+    GrowthProposal,
+)
+from src.wrappers.types import WrapperToolSpec
+
+if TYPE_CHECKING:
+    from src.tools.registry import ToolRegistry
+    from src.wrappers.store import WrapperToolStore
+
+logger = structlog.get_logger()
+
+# ---------------------------------------------------------------------------
+# implementation_ref V1 pattern: "<module>:<factory>"
+# ---------------------------------------------------------------------------
+
+_IMPL_REF_PATTERN = re.compile(r"^[\w.]+:[\w]+$")
+
+# ---------------------------------------------------------------------------
+# Eval check helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_schema_field(schema: object, field_name: str) -> str | None:
+    """Return an error string if *schema* is not a valid JSON Schema dict, else None."""
+    if not isinstance(schema, dict):
+        return f"{field_name} is not a dict"
+    if "type" not in schema:
+        return f"{field_name} missing 'type' key"
+    return None
+
+
+def _validate_required_fields(spec: WrapperToolSpec) -> list[str]:
+    """Return error strings for missing/invalid identity fields on *spec*."""
+    errors: list[str] = []
+    if not spec.id:
+        errors.append("id is empty")
+    if not spec.capability:
+        errors.append("capability is empty")
+    if not spec.summary:
+        errors.append("summary is empty")
+    if spec.version < 1:
+        errors.append(f"version must be >= 1, got {spec.version}")
+    return errors
+
+
+def _check_typed_io_validation(spec: WrapperToolSpec) -> dict:
+    """Check 1: input_schema and output_schema are valid JSON Schema dicts."""
+    errors: list[str] = []
+    schema_pairs = ((spec.input_schema, "input_schema"), (spec.output_schema, "output_schema"))
+    for schema, name in schema_pairs:
+        err = _validate_schema_field(schema, name)
+        if err:
+            errors.append(err)
+    errors.extend(_validate_required_fields(spec))
+    passed = len(errors) == 0
+    return {
+        "name": "typed_io_validation",
+        "passed": passed,
+        "detail": "Typed I/O valid" if passed else "; ".join(errors),
+    }
+
+
+def _check_permission_boundary(spec: WrapperToolSpec) -> dict:
+    """Check 2: deny_semantics must be non-empty and reasonable."""
+    errors: list[str] = []
+    if not spec.deny_semantics:
+        errors.append("deny_semantics is empty — every wrapper must declare denied operations")
+    else:
+        for ds in spec.deny_semantics:
+            if not ds.strip():
+                errors.append("deny_semantics contains an empty entry")
+    passed = len(errors) == 0
+    return {
+        "name": "permission_boundary",
+        "passed": passed,
+        "detail": "Permission boundary OK" if passed else "; ".join(errors),
+    }
+
+
+def _check_dry_run_smoke(spec: WrapperToolSpec) -> dict:
+    """Check 3: implementation_ref format valid and module importable."""
+    errors: list[str] = []
+    ref = spec.implementation_ref
+    if not _IMPL_REF_PATTERN.match(ref):
+        errors.append(f"implementation_ref '{ref}' does not match '<module>:<factory>' pattern")
+    else:
+        module_path, _factory_name = ref.rsplit(":", 1)
+        try:
+            importlib.import_module(module_path)
+        except ImportError as exc:
+            errors.append(f"Cannot import module '{module_path}': {exc}")
+    passed = len(errors) == 0
+    return {
+        "name": "dry_run_smoke",
+        "passed": passed,
+        "detail": "Dry-run smoke OK" if passed else "; ".join(errors),
+    }
+
+
+def _check_before_after_cases(proposal_payload: dict) -> dict:
+    """Check 4: proposal must contain before/after or smoke_test evidence."""
+    has_evidence = (
+        "before_after" in proposal_payload
+        or "smoke_test_results" in proposal_payload
+        or "evidence" in proposal_payload
+    )
+    if has_evidence:
+        return {
+            "name": "before_after_cases",
+            "passed": True,
+            "detail": "Before/after evidence present",
+        }
+    return {
+        "name": "before_after_cases",
+        "passed": False,
+        "detail": "No before/after or smoke_test evidence in payload",
+    }
+
+
+def _check_scope_claim_consistency(spec: WrapperToolSpec) -> dict:
+    """Check 5: scope_claim consistent with bound_atomic_tools and implementation_ref."""
+    errors: list[str] = []
+    valid_claims = {"local", "reusable", "promotable"}
+    if spec.scope_claim not in valid_claims:
+        errors.append(f"scope_claim '{spec.scope_claim}' not in {valid_claims}")
+    if spec.scope_claim in ("reusable", "promotable"):
+        if not spec.bound_atomic_tools:
+            errors.append(f"scope_claim='{spec.scope_claim}' but bound_atomic_tools is empty")
+    passed = len(errors) == 0
+    return {
+        "name": "scope_claim_consistency",
+        "passed": passed,
+        "detail": "Scope claim consistent" if passed else "; ".join(errors),
+    }
+
+
+# ---------------------------------------------------------------------------
+# WrapperToolGovernedObjectAdapter
+# ---------------------------------------------------------------------------
+
+
+def _eval_early_return(record, version: int, contract) -> GrowthEvalResult | None:
+    """Return early-exit eval result if record is missing or not proposed."""
+    if record is None:
+        return GrowthEvalResult(
+            passed=False,
+            summary=f"Governance version {version} not found",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+    if record.status != GrowthLifecycleStatus.proposed:
+        return GrowthEvalResult(
+            passed=False,
+            summary=f"Version {version} is '{record.status}', not 'proposed'",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+    return None
+
+
+def _parse_proposal_payload(record, contract) -> WrapperToolSpec | GrowthEvalResult:
+    """Parse WrapperToolSpec from proposal payload; return EvalResult on failure."""
+    payload = record.proposal.get("payload", {})
+    try:
+        spec = WrapperToolSpec(**payload.get("wrapper_tool_spec", {}))
+    except Exception as exc:
+        return GrowthEvalResult(
+            passed=False,
+            checks=[
+                {
+                    "name": "typed_io_validation",
+                    "passed": False,
+                    "detail": f"Payload parse error: {exc}",
+                }
+            ],
+            summary=f"Payload parse error: {exc}",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+    return spec
+
+
+def _run_eval_checks(spec: WrapperToolSpec, payload: dict, contract) -> GrowthEvalResult:
+    """Run 5 deterministic eval checks and return the composite result."""
+    checks = [
+        _check_typed_io_validation(spec),
+        _check_permission_boundary(spec),
+        _check_dry_run_smoke(spec),
+        _check_before_after_cases(payload),
+        _check_scope_claim_consistency(spec),
+    ]
+    passed = all(c["passed"] for c in checks)
+    summary = (
+        "All checks passed"
+        if passed
+        else "Failed: " + ", ".join(c["name"] for c in checks if not c["passed"])
+    )
+    return GrowthEvalResult(
+        passed=passed,
+        checks=checks,
+        summary=summary,
+        contract_id=contract.contract_id,
+        contract_version=contract.version,
+    )
+
+
+def _resolve_and_register(spec: WrapperToolSpec, registry: ToolRegistry) -> None:
+    """Resolve implementation_ref and register the tool in the ToolRegistry.
+
+    Parses ``<module>:<factory>``, imports the module, calls the factory,
+    and registers the resulting BaseTool instance.
+
+    Raises ``ValueError`` if factory returns a tool whose ``name`` does not
+    match ``spec.id``.  This prevents registry/store key divergence.
+    """
+    module_path, factory_name = spec.implementation_ref.rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    factory = getattr(mod, factory_name)
+    tool = factory()
+    if tool.name != spec.id:
+        raise ValueError(
+            f"Factory returned tool.name={tool.name!r} but spec.id={spec.id!r}; "
+            "they must match to prevent registry/store key divergence"
+        )
+    registry.replace(tool)
+    logger.info(
+        "wrapper_tool_registered",
+        wrapper_tool_id=spec.id,
+        implementation_ref=spec.implementation_ref,
+    )
+
+
+class WrapperToolGovernedObjectAdapter:
+    """Adapter connecting wrapper_tool to the growth governance kernel.
+
+    Implements :class:`GovernedObjectAdapter` protocol for
+    :attr:`GrowthObjectKind.wrapper_tool`.
+    """
+
+    def __init__(self, store: WrapperToolStore, registry: ToolRegistry) -> None:
+        self._store = store
+        self._registry = registry
+        self._contract = WRAPPER_TOOL_EVAL_CONTRACT_V1
+
+    @property
+    def kind(self) -> GrowthObjectKind:
+        return GrowthObjectKind.wrapper_tool
+
+    async def propose(self, proposal: GrowthProposal) -> int:
+        """Create a governance proposal from payload.
+
+        Requires ``proposal.payload["wrapper_tool_spec"]`` (dict).
+        Returns the governance_version.
+        """
+        raw_spec = proposal.payload.get("wrapper_tool_spec")
+        if not isinstance(raw_spec, dict):
+            raise ValueError(
+                "WrapperToolGovernedObjectAdapter.propose() requires "
+                'proposal.payload["wrapper_tool_spec"] to be a dict'
+            )
+        # Validate that it parses as a domain object (fail fast)
+        WrapperToolSpec(**raw_spec)
+
+        gv = await self._store.create_proposal(proposal)
+        logger.info(
+            "wrapper_tool_adapter_proposed",
+            governance_version=gv,
+            wrapper_tool_id=proposal.object_id,
+        )
+        return gv
+
+    async def evaluate(self, version: int) -> GrowthEvalResult:
+        """Run 5 deterministic eval checks against a proposed wrapper tool.
+
+        Pins ``WRAPPER_TOOL_EVAL_CONTRACT_V1`` (ADR 0054 §1a).
+        """
+        contract = self._contract
+        record = await self._store.get_proposal(version)
+
+        early = _eval_early_return(record, version, contract)
+        if early is not None:
+            return early
+
+        assert record is not None  # guaranteed by _eval_early_return
+        parsed = _parse_proposal_payload(record, contract)
+        if isinstance(parsed, GrowthEvalResult):
+            return parsed
+        spec = parsed
+
+        payload = record.proposal.get("payload", {})
+        result = _run_eval_checks(spec, payload, contract)
+        await self._store.store_eval_result(version, result)
+        logger.info(
+            "wrapper_tool_adapter_evaluated",
+            governance_version=version,
+            passed=result.passed,
+        )
+        return result
+
+    async def apply(self, version: int) -> None:
+        """Materialize a passed proposal to wrapper_tools + ToolRegistry.
+
+        P2-M1c does not support in-place upgrade.  If the same
+        ``wrapper_tool_id`` already has an active version, ``apply()``
+        fails closed.  To switch versions: rollback/disable first, then
+        apply the new version.
+
+        Compensating-write sequence:
+        1. Validate preconditions (eval passed, status proposed, no existing active)
+        2. DB transaction: upsert current-state + mark ledger active
+        3. After DB commit succeeds: register in ToolRegistry
+        4. If registry registration fails: compensate by rolling back DB
+        """
+        record = await self._store.get_proposal(version)
+        if record is None:
+            raise ValueError(f"Governance version {version} not found")
+        if record.status != GrowthLifecycleStatus.proposed:
+            raise ValueError(f"Cannot apply version {version}: status is '{record.status}'")
+        if not record.eval_result or not record.eval_result.get("passed"):
+            raise ValueError(f"Cannot apply version {version}: eval not passed")
+
+        payload = record.proposal.get("payload", {})
+        spec = WrapperToolSpec(**payload["wrapper_tool_spec"])
+
+        # Fail-closed: reject apply if same wrapper_tool_id already active
+        existing = await self._store.find_last_applied(spec.id)
+        if existing is not None:
+            raise ValueError(
+                f"Cannot apply version {version}: wrapper_tool '{spec.id}' already has "
+                f"active version {existing.governance_version}; "
+                "in-place upgrade not supported in P2-M1c — rollback/disable first"
+            )
+
+        # Step 1: DB writes in transaction (commit on exit)
+        async with self._store.transaction() as session:
+            await self._store.upsert_active(spec, session=session)
+            await self._store.update_proposal_status(
+                version,
+                GrowthLifecycleStatus.active,
+                applied_at=datetime.now(UTC),
+                session=session,
+            )
+        # DB committed successfully at this point
+
+        # Step 2: registry mutation with compensating rollback on failure
+        try:
+            _resolve_and_register(spec, self._registry)
+        except Exception:
+            logger.error(
+                "wrapper_tool_registry_failed_compensating",
+                governance_version=version,
+                wrapper_tool_id=spec.id,
+            )
+            await self._compensate_failed_apply(version, spec)
+            raise
+
+        logger.info(
+            "wrapper_tool_adapter_applied",
+            governance_version=version,
+            wrapper_tool_id=spec.id,
+        )
+
+    async def _compensate_failed_apply(
+        self, version: int, spec: WrapperToolSpec
+    ) -> None:
+        """Undo DB writes when registry registration fails after DB commit."""
+        try:
+            async with self._store.transaction() as session:
+                await self._store.remove_active(spec.id, session=session)
+                await self._store.update_proposal_status(
+                    version,
+                    GrowthLifecycleStatus.proposed,
+                    session=session,
+                )
+        except Exception:
+            logger.exception(
+                "wrapper_tool_compensate_failed",
+                governance_version=version,
+                wrapper_tool_id=spec.id,
+            )
+
+    async def rollback(self, **kwargs: object) -> int:
+        """Rollback: remove current active wrapper and disable in store.
+
+        Returns the governance_version of the rollback ledger entry.
+
+        The current version uses a simple disable-on-rollback strategy:
+        the active wrapper is removed from ToolRegistry and disabled in
+        current-state.  Re-applying a previous version requires a new
+        propose→eval→apply cycle.
+
+        DB writes happen first; registry mutation follows with compensating
+        semantics (same pattern as ``apply``).
+        """
+        wrapper_tool_id = kwargs.get("wrapper_tool_id")
+        if not isinstance(wrapper_tool_id, str):
+            raise ValueError("rollback() requires wrapper_tool_id as keyword argument")
+
+        current = await self._store.find_last_applied(wrapper_tool_id)
+
+        # Step 1: DB writes
+        async with self._store.transaction() as session:
+            await self._store.remove_active(wrapper_tool_id, session=session)
+            if current is not None:
+                await self._store.update_proposal_status(
+                    current.governance_version,
+                    GrowthLifecycleStatus.rolled_back,
+                    session=session,
+                )
+            gv = await self._create_rollback_entry(current, wrapper_tool_id, session)
+
+        # Step 2: registry cleanup (after DB commit)
+        self._unregister_tool(wrapper_tool_id)
+
+        logger.info(
+            "wrapper_tool_adapter_rolled_back",
+            governance_version=gv,
+            wrapper_tool_id=wrapper_tool_id,
+        )
+        return gv
+
+    def _unregister_tool(self, wrapper_tool_id: str) -> None:
+        """Best-effort unregister from ToolRegistry."""
+        try:
+            self._registry.unregister(wrapper_tool_id)
+        except KeyError:
+            logger.debug(
+                "wrapper_tool_unregister_skip",
+                wrapper_tool_id=wrapper_tool_id,
+                reason="not in registry",
+            )
+
+    async def _create_rollback_entry(self, last_applied, wrapper_tool_id: str, session) -> int:
+        """Create a rollback ledger entry and return its governance_version."""
+        rollback_proposal = GrowthProposal(
+            object_kind=GrowthObjectKind.wrapper_tool,
+            object_id=wrapper_tool_id,
+            intent="rollback",
+            risk_notes="System rollback",
+            diff_summary="Rollback to previous version or disable",
+            proposed_by="system",
+        )
+        gv = await self._store.create_proposal(rollback_proposal, session=session)
+        await self._store.update_proposal_status(
+            gv,
+            GrowthLifecycleStatus.rolled_back,
+            rolled_back_from=(last_applied.governance_version if last_applied else None),
+            session=session,
+        )
+        return gv
+
+    async def veto(self, version: int) -> None:
+        """Veto a specific governance version.
+
+        - ``proposed`` → mark vetoed (no side effects).
+        - ``active`` → only allowed if *this* version is the current active.
+          Delegates to ``rollback(wrapper_tool_id=…)`` which disables and
+          unregisters.  If the version is active but not the current one
+          (should not happen with the single-active invariant), rejects.
+        - Any other status → rejects.
+        """
+        record = await self._store.get_proposal(version)
+        if record is None:
+            raise ValueError(f"Governance version {version} not found")
+
+        if record.status == GrowthLifecycleStatus.proposed:
+            await self._store.update_proposal_status(version, GrowthLifecycleStatus.vetoed)
+            logger.info(
+                "wrapper_tool_adapter_vetoed",
+                governance_version=version,
+                was_status="proposed",
+            )
+        elif record.status == GrowthLifecycleStatus.active:
+            current = await self._store.find_last_applied(record.wrapper_tool_id)
+            if current is None or current.governance_version != version:
+                raise ValueError(
+                    f"Cannot veto version {version}: it is marked active but is "
+                    f"not the current active version for '{record.wrapper_tool_id}'"
+                )
+            await self.rollback(wrapper_tool_id=record.wrapper_tool_id)
+            logger.info(
+                "wrapper_tool_adapter_vetoed",
+                governance_version=version,
+                was_status="active",
+            )
+        else:
+            raise ValueError(f"Cannot veto version {version}: status is '{record.status}'")
+
+    async def get_active(self) -> list[WrapperToolSpec]:
+        """Return all active (non-disabled) wrapper tools. Collection semantics."""
+        result = await self._store.get_active()
+        assert isinstance(result, list)  # no wrapper_tool_id arg → list
+        return result

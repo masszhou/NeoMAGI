@@ -113,7 +113,7 @@ SKILL_SPEC_EVAL_CONTRACT_V1 = GrowthEvalContract(
     ),
 )
 
-# ── wrapper_tool: contract skeleton (WP4, runtime deferred) ──
+# ── wrapper_tool: contract skeleton (WP4, historical — superseded by V1) ──
 
 WRAPPER_TOOL_EVAL_CONTRACT_SKELETON = GrowthEvalContract(
     contract_id="wrapper_tool_skeleton_v1",
@@ -158,6 +158,59 @@ WRAPPER_TOOL_EVAL_CONTRACT_SKELETON = GrowthEvalContract(
     rollback_preconditions=(
         "previous_version_exists",
         "tool_binding_reversible",
+    ),
+    budget_limits=(),
+)
+
+# ── wrapper_tool: first formal contract profile (WP4, P2-M1c) ──
+
+WRAPPER_TOOL_EVAL_CONTRACT_V1 = GrowthEvalContract(
+    contract_id="wrapper_tool_eval_v1",
+    object_kind=GrowthObjectKind.wrapper_tool,
+    version=1,
+    mutable_surface=(
+        "wrapper schema",
+        "tool binding / implementation_ref",
+        "implementation code",
+        "deny behavior / deny_semantics",
+        "scope_claim declaration",
+    ),
+    immutable_harness=(
+        "typed I/O validation checks",
+        "permission boundary checks",
+        "dry-run/smoke test suite",
+        "before/after case corpus",
+        "scope claim consistency rules",
+    ),
+    required_checks=(
+        # Boundary gates — deterministic hard checks
+        "typed_io_validation",  # input/output schema 是否合法
+        "permission_boundary",  # 权限边界是否合规
+        "dry_run_smoke",  # dry-run/smoke test 是否通过
+        # Effect evidence
+        "before_after_cases",  # 前后对比证据
+        # Scope claim
+        "scope_claim_consistency",  # scope_claim 与实际行为是否一致
+    ),
+    required_artifacts=(
+        "intent",
+        "risk_notes",
+        "diff_summary",
+        "tool_schema",
+        "smoke_test_results",
+    ),
+    pass_rule_kind=PassRuleKind.all_required,
+    pass_rule_params=(),
+    veto_conditions=(
+        "typed_io_mismatch",
+        "permission_boundary_violation",
+        "deny_semantics_broken",
+        "scope_claim_contradicts_behavior",
+    ),
+    rollback_preconditions=(
+        "previous_version_exists",
+        "tool_binding_reversible",
+        "no_active_consumers",
     ),
     budget_limits=(),
 )
@@ -249,7 +302,7 @@ MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON = GrowthEvalContract(
 _CONTRACTS: dict[GrowthObjectKind, GrowthEvalContract] = {
     GrowthObjectKind.soul: SOUL_EVAL_CONTRACT_V1,
     GrowthObjectKind.skill_spec: SKILL_SPEC_EVAL_CONTRACT_V1,
-    GrowthObjectKind.wrapper_tool: WRAPPER_TOOL_EVAL_CONTRACT_SKELETON,
+    GrowthObjectKind.wrapper_tool: WRAPPER_TOOL_EVAL_CONTRACT_V1,
     GrowthObjectKind.procedure_spec: PROCEDURE_SPEC_EVAL_CONTRACT_SKELETON,
     GrowthObjectKind.memory_application_spec: MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON,
 }

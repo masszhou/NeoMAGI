@@ -18,6 +18,7 @@ from src.growth.contracts import (
     SKILL_SPEC_EVAL_CONTRACT_V1,
     SOUL_EVAL_CONTRACT_V1,
     WRAPPER_TOOL_EVAL_CONTRACT_SKELETON,
+    WRAPPER_TOOL_EVAL_CONTRACT_V1,
     get_contract,
 )
 from src.growth.types import (
@@ -126,11 +127,81 @@ class TestSkillSpecContractProfile:
         assert "initial_evidence" in arts
 
 
+class TestWrapperToolContractV1:
+    """Tests for WRAPPER_TOOL_EVAL_CONTRACT_V1 — the formal contract (P2-M1c)."""
+
+    def test_kind_is_wrapper_tool(self) -> None:
+        assert WRAPPER_TOOL_EVAL_CONTRACT_V1.object_kind == GrowthObjectKind.wrapper_tool
+
+    def test_contract_id(self) -> None:
+        assert WRAPPER_TOOL_EVAL_CONTRACT_V1.contract_id == "wrapper_tool_eval_v1"
+
+    def test_pass_rule_all_required(self) -> None:
+        assert WRAPPER_TOOL_EVAL_CONTRACT_V1.pass_rule_kind == PassRuleKind.all_required
+
+    def test_has_five_required_checks(self) -> None:
+        checks = WRAPPER_TOOL_EVAL_CONTRACT_V1.required_checks
+        assert len(checks) == 5
+        # Boundary gates
+        assert "typed_io_validation" in checks
+        assert "permission_boundary" in checks
+        assert "dry_run_smoke" in checks
+        # Effect evidence
+        assert "before_after_cases" in checks
+        # Scope claim
+        assert "scope_claim_consistency" in checks
+
+    def test_veto_conditions(self) -> None:
+        vetos = WRAPPER_TOOL_EVAL_CONTRACT_V1.veto_conditions
+        assert "typed_io_mismatch" in vetos
+        assert "permission_boundary_violation" in vetos
+        assert "deny_semantics_broken" in vetos
+        assert "scope_claim_contradicts_behavior" in vetos
+        assert len(vetos) == 4
+
+    def test_rollback_preconditions(self) -> None:
+        preconds = WRAPPER_TOOL_EVAL_CONTRACT_V1.rollback_preconditions
+        assert "previous_version_exists" in preconds
+        assert "tool_binding_reversible" in preconds
+        assert "no_active_consumers" in preconds
+        assert len(preconds) == 3
+
+    def test_mutable_surface_non_empty(self) -> None:
+        assert len(WRAPPER_TOOL_EVAL_CONTRACT_V1.mutable_surface) > 0
+
+    def test_immutable_harness_non_empty(self) -> None:
+        assert len(WRAPPER_TOOL_EVAL_CONTRACT_V1.immutable_harness) > 0
+
+    def test_frozen(self) -> None:
+        with pytest.raises(AttributeError):
+            WRAPPER_TOOL_EVAL_CONTRACT_V1.version = 99  # type: ignore[misc]
+
+    def test_required_artifacts(self) -> None:
+        arts = WRAPPER_TOOL_EVAL_CONTRACT_V1.required_artifacts
+        assert "intent" in arts
+        assert "tool_schema" in arts
+        assert "smoke_test_results" in arts
+
+
+class TestWrapperToolSkeletonHistorical:
+    """Skeleton is retained as historical constant but no longer in _CONTRACTS."""
+
+    def test_skeleton_still_exists(self) -> None:
+        assert WRAPPER_TOOL_EVAL_CONTRACT_SKELETON.contract_id == "wrapper_tool_skeleton_v1"
+
+    def test_skeleton_not_in_registry(self) -> None:
+        active = get_contract(GrowthObjectKind.wrapper_tool)
+        assert active is not WRAPPER_TOOL_EVAL_CONTRACT_SKELETON
+
+    def test_skeleton_frozen(self) -> None:
+        with pytest.raises(AttributeError):
+            WRAPPER_TOOL_EVAL_CONTRACT_SKELETON.version = 99  # type: ignore[misc]
+
+
 class TestReservedKindSkeletons:
     @pytest.mark.parametrize(
         ("contract", "expected_kind"),
         [
-            (WRAPPER_TOOL_EVAL_CONTRACT_SKELETON, GrowthObjectKind.wrapper_tool),
             (PROCEDURE_SPEC_EVAL_CONTRACT_SKELETON, GrowthObjectKind.procedure_spec),
             (MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON, GrowthObjectKind.memory_application_spec),
         ],
@@ -143,7 +214,6 @@ class TestReservedKindSkeletons:
     @pytest.mark.parametrize(
         "contract",
         [
-            WRAPPER_TOOL_EVAL_CONTRACT_SKELETON,
             PROCEDURE_SPEC_EVAL_CONTRACT_SKELETON,
             MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON,
         ],
@@ -154,7 +224,6 @@ class TestReservedKindSkeletons:
     @pytest.mark.parametrize(
         "contract",
         [
-            WRAPPER_TOOL_EVAL_CONTRACT_SKELETON,
             PROCEDURE_SPEC_EVAL_CONTRACT_SKELETON,
             MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON,
         ],
@@ -165,7 +234,6 @@ class TestReservedKindSkeletons:
     @pytest.mark.parametrize(
         "contract",
         [
-            WRAPPER_TOOL_EVAL_CONTRACT_SKELETON,
             PROCEDURE_SPEC_EVAL_CONTRACT_SKELETON,
             MEMORY_APP_SPEC_EVAL_CONTRACT_SKELETON,
         ],
@@ -187,6 +255,9 @@ class TestGetContract:
 
     def test_skill_spec_returns_v1(self) -> None:
         assert get_contract(GrowthObjectKind.skill_spec) is SKILL_SPEC_EVAL_CONTRACT_V1
+
+    def test_wrapper_tool_returns_v1(self) -> None:
+        assert get_contract(GrowthObjectKind.wrapper_tool) is WRAPPER_TOOL_EVAL_CONTRACT_V1
 
     def test_invalid_kind_raises(self) -> None:
         with pytest.raises(KeyError):

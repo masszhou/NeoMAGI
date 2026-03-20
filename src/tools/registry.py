@@ -28,6 +28,27 @@ class ToolRegistry:
         self._tools[tool.name] = tool
         logger.info("tool_registered", tool_name=tool.name)
 
+    def unregister(self, name: str) -> None:
+        """Remove a tool by name. Also removes mode overrides.
+
+        Raises KeyError if not found.
+        """
+        if name not in self._tools:
+            raise KeyError(f"Tool not registered: {name}")
+        del self._tools[name]
+        self._mode_overrides.pop(name, None)
+        logger.info("tool_unregistered", tool_name=name)
+
+    def replace(self, tool: BaseTool) -> None:
+        """Replace an existing tool or register a new one. Clears mode overrides."""
+        old = self._tools.get(tool.name)
+        self._tools[tool.name] = tool
+        self._mode_overrides.pop(tool.name, None)
+        if old:
+            logger.info("tool_replaced", tool_name=tool.name)
+        else:
+            logger.info("tool_registered", tool_name=tool.name)
+
     def get(self, name: str) -> BaseTool | None:
         """Get a tool by name. Returns None if not found."""
         return self._tools.get(name)

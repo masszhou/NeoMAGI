@@ -65,9 +65,28 @@ class TestGetKindPolicySkillSpec:
         assert policy.requires_explicit_approval is True
 
 
+class TestGetKindPolicyWrapperTool:
+    """wrapper_tool is onboarded as of P2-M1c."""
+
+    def test_wrapper_tool_is_onboarded(self, registry: PolicyRegistry) -> None:
+        policy = registry.get_kind_policy(GrowthObjectKind.wrapper_tool)
+        assert policy.onboarding_state == GrowthOnboardingState.onboarded
+
+    def test_wrapper_tool_adapter_name(self, registry: PolicyRegistry) -> None:
+        policy = registry.get_kind_policy(GrowthObjectKind.wrapper_tool)
+        assert policy.adapter_name == "wrapper_tool"
+
+    def test_wrapper_tool_requires_approval(self, registry: PolicyRegistry) -> None:
+        policy = registry.get_kind_policy(GrowthObjectKind.wrapper_tool)
+        assert policy.requires_explicit_approval is True
+
+    def test_wrapper_tool_notes(self, registry: PolicyRegistry) -> None:
+        policy = registry.get_kind_policy(GrowthObjectKind.wrapper_tool)
+        assert "P2-M1c" in policy.notes
+
+
 class TestGetKindPolicyReserved:
     _RESERVED_KINDS = [
-        GrowthObjectKind.wrapper_tool,
         GrowthObjectKind.procedure_spec,
         GrowthObjectKind.memory_application_spec,
     ]
