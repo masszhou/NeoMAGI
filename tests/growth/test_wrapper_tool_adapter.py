@@ -784,3 +784,53 @@ class TestPostReviewRegressions:
         with pytest.raises(ValueError, match="not the current active version"):
             await adapter.veto(1)
         mock_store.remove_active.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Startup restore
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreActiveWrappers:
+    """_restore_active_wrappers must re-register DB-active wrappers at startup."""
+
+    @pytest.mark.asyncio
+    async def test_restores_active_wrappers(self) -> None:
+        from src.gateway.app import _restore_active_wrappers
+
+        spec = _make_spec()
+        mock_store = AsyncMock()
+        mock_store.get_active = AsyncMock(return_value=[spec])
+        mock_registry = MagicMock()
+
+        with patch("src.growth.adapters.wrapper_tool._resolve_and_register") as mock_reg:
+            count = await _restore_active_wrappers(mock_store, mock_registry)
+        assert count == 1
+        mock_reg.assert_called_once_with(spec, mock_registry)
+
+    @pytest.mark.asyncio
+    async def test_skips_failed_restore_non_fatal(self) -> None:
+        from src.gateway.app import _restore_active_wrappers
+
+        spec = _make_spec()
+        mock_store = AsyncMock()
+        mock_store.get_active = AsyncMock(return_value=[spec])
+        mock_registry = MagicMock()
+
+        with patch(
+            "src.growth.adapters.wrapper_tool._resolve_and_register",
+            side_effect=ImportError("module gone"),
+        ):
+            count = await _restore_active_wrappers(mock_store, mock_registry)
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_db_restores_nothing(self) -> None:
+        from src.gateway.app import _restore_active_wrappers
+
+        mock_store = AsyncMock()
+        mock_store.get_active = AsyncMock(return_value=[])
+        mock_registry = MagicMock()
+
+        count = await _restore_active_wrappers(mock_store, mock_registry)
+        assert count == 0

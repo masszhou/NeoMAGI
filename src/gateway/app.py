@@ -123,7 +123,11 @@ async def _run_startup_preflight(app, settings, engine):
 
 
 def _build_governance_engine(db_session_factory, evolution_engine, skill_store, tool_registry):
-    """Build governance engine with all onboarded adapters."""
+    """Build governance engine with all onboarded adapters.
+
+    Returns ``(engine, wrapper_tool_store)`` so the caller can restore
+    active wrappers at startup.
+    """
     from src.growth.adapters.skill import SkillGovernedObjectAdapter
     from src.growth.adapters.soul import SoulGovernedObjectAdapter
     from src.growth.adapters.wrapper_tool import WrapperToolGovernedObjectAdapter
@@ -139,7 +143,7 @@ def _build_governance_engine(db_session_factory, evolution_engine, skill_store, 
         wrapper_tool_store, tool_registry
     )
     policy_registry = PolicyRegistry()
-    return GrowthGovernanceEngine(
+    engine = GrowthGovernanceEngine(
         adapters={
             GrowthObjectKind.soul: soul_adapter,
             GrowthObjectKind.skill_spec: skill_adapter,
@@ -147,9 +151,36 @@ def _build_governance_engine(db_session_factory, evolution_engine, skill_store, 
         },
         policy_registry=policy_registry,
     )
+    return engine, wrapper_tool_store
 
 
-def _build_memory_and_tools(settings, db_session_factory):
+async def _restore_active_wrappers(wrapper_tool_store, tool_registry) -> int:
+    """Restore active wrapper tools from DB into ToolRegistry at startup.
+
+    Returns the number of wrappers restored.  Logs and skips any wrapper
+    whose factory fails to resolve (non-fatal: the DB record stays active
+    so an operator can investigate).
+    """
+    from src.growth.adapters.wrapper_tool import _resolve_and_register
+
+    specs = await wrapper_tool_store.get_active()
+    restored = 0
+    for spec in specs:
+        try:
+            _resolve_and_register(spec, tool_registry)
+            restored += 1
+        except Exception:
+            logger.exception(
+                "wrapper_tool_restore_failed",
+                wrapper_tool_id=spec.id,
+                implementation_ref=spec.implementation_ref,
+            )
+    if restored:
+        logger.info("wrapper_tools_restored", count=restored, total=len(specs))
+    return restored
+
+
+async def _build_memory_and_tools(settings, db_session_factory):
     """Build memory stack + tool registry + skill runtime (incl. learner)."""
     memory_indexer = MemoryIndexer(db_session_factory, settings.memory)
     memory_searcher = MemorySearcher(db_session_factory, settings.memory)
@@ -175,10 +206,12 @@ def _build_memory_and_tools(settings, db_session_factory):
     skill_resolver = SkillResolver(registry=skill_store)
     skill_projector = SkillProjector()
 
-    governance_engine = _build_governance_engine(
+    governance_engine, wrapper_tool_store = _build_governance_engine(
         db_session_factory, evolution_engine, skill_store, tool_registry
     )
     skill_learner = SkillLearner(skill_store, governance_engine)
+
+    await _restore_active_wrappers(wrapper_tool_store, tool_registry)
 
     return (
         memory_searcher, evolution_engine, tool_registry,
@@ -282,7 +315,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     (
         memory_searcher, evolution_engine, tool_registry,
         skill_resolver, skill_projector, skill_learner,
-    ) = _build_memory_and_tools(settings, db_session_factory)
+    ) = await _build_memory_and_tools(settings, db_session_factory)
     health_tracker = ComponentHealthTracker()
     registry = _build_provider_registry(
         settings, session_manager, memory_searcher,
