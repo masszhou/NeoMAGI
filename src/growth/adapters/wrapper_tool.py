@@ -321,19 +321,10 @@ class WrapperToolGovernedObjectAdapter:
         )
         return result
 
-    async def apply(self, version: int) -> None:
-        """Materialize a passed proposal to wrapper_tools + ToolRegistry.
+    async def _validate_apply_preconditions(self, version: int) -> WrapperToolSpec:
+        """Validate preconditions for apply and return parsed WrapperToolSpec.
 
-        P2-M1c does not support in-place upgrade.  If the same
-        ``wrapper_tool_id`` already has an active version, ``apply()``
-        fails closed.  To switch versions: rollback/disable first, then
-        apply the new version.
-
-        Compensating-write sequence:
-        1. Validate preconditions (eval passed, status proposed, no existing active)
-        2. DB transaction: upsert current-state + mark ledger active
-        3. After DB commit succeeds: register in ToolRegistry
-        4. If registry registration fails: compensate by rolling back DB
+        Checks: version exists, status proposed, eval passed, no active upgrade.
         """
         record = await self._store.get_proposal(version)
         if record is None:
@@ -346,7 +337,6 @@ class WrapperToolGovernedObjectAdapter:
         payload = record.proposal.get("payload", {})
         spec = WrapperToolSpec(**payload["wrapper_tool_spec"])
 
-        # Fail-closed: reject apply if same wrapper_tool_id already active
         existing = await self._store.find_last_applied(spec.id)
         if existing is not None:
             raise ValueError(
@@ -354,8 +344,16 @@ class WrapperToolGovernedObjectAdapter:
                 f"active version {existing.governance_version}; "
                 "in-place upgrade not supported in P2-M1c — rollback/disable first"
             )
+        return spec
 
-        # Step 1: DB writes in transaction (commit on exit)
+    async def apply(self, version: int) -> None:
+        """Materialize a passed proposal to wrapper_tools + ToolRegistry.
+
+        P2-M1c does not support in-place upgrade; rollback/disable first.
+        DB writes commit first, then registry mutation with compensation.
+        """
+        spec = await self._validate_apply_preconditions(version)
+
         async with self._store.transaction() as session:
             await self._store.upsert_active(spec, session=session)
             await self._store.update_proposal_status(
@@ -364,9 +362,7 @@ class WrapperToolGovernedObjectAdapter:
                 applied_at=datetime.now(UTC),
                 session=session,
             )
-        # DB committed successfully at this point
 
-        # Step 2: registry mutation with compensating rollback on failure
         try:
             _resolve_and_register(spec, self._registry)
         except Exception:
