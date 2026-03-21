@@ -257,24 +257,28 @@ uv run python - <<'PY'
 import asyncio
 from sqlalchemy import text
 from src.config import get_settings
-from src.session.database import create_async_engine
+from src.session.database import create_db_engine
 
 async def main():
     s = get_settings()
-    engine = create_async_engine(s.database_url)
+    engine = await create_db_engine(s.database)
     async with engine.connect() as conn:
         rows = (
             await conn.execute(
                 text(f"""
-                SELECT governance_version, skill_id, status, created_by
-                FROM {s.database.schema}.skill_spec_versions
+                SELECT governance_version, skill_id, status, created_by, created_at
+                FROM {s.database.schema_}.skill_spec_versions
                 ORDER BY governance_version DESC
                 LIMIT 5
                 """)
             )
         ).fetchall()
+        print(
+            f"db={s.database.name} host={s.database.host} "
+            f"schema={s.database.schema_} rows={len(rows)}"
+        )
         for row in rows:
-            print(row)
+            print(tuple(row))
     await engine.dispose()
 
 asyncio.run(main())
@@ -282,6 +286,7 @@ PY
 ```
 
 应能看到最新 `skill_spec_versions` 记录，且 `created_by` 通常为 `user` 或治理链上的对应 actor。
+如果输出 `rows=0`，先确认你检查的是脚本打印出来的同一个 `db/schema`，不要手工连到别的库或 schema。
 
 ### T06 会话仍保持 `chat_safe` 边界
 
@@ -394,7 +399,7 @@ uv run python - <<'PY'
 import asyncio
 from sqlalchemy import text
 from src.config import get_settings
-from src.session.database import create_async_engine
+from src.session.database import create_db_engine
 
 QUERIES = [
     "skill_specs",
@@ -406,12 +411,12 @@ QUERIES = [
 
 async def main():
     s = get_settings()
-    engine = create_async_engine(s.database_url)
+    engine = await create_db_engine(s.database)
     async with engine.connect() as conn:
         for name in QUERIES:
             count = (
                 await conn.execute(
-                    text(f"SELECT COUNT(*) FROM {s.database.schema}.{name}")
+                    text(f"SELECT COUNT(*) FROM {s.database.schema_}.{name}")
                 )
             ).scalar_one()
             print(f"{name}: {count}")
@@ -454,6 +459,9 @@ bd ready --json
   - `以后这类任务`
   - `remember this`
   - `from now on`
+- 数据库检查脚本必须使用 `create_db_engine(settings.database)` 与
+  `settings.database.schema_`；不要使用不存在的 `settings.database_url`
+  或 `settings.database.schema`
 - 再确认后端日志中没有 `teaching_skill_proposal_failed`
 
 ### 9.2 `GC-1` / `GC-2` 测试通过，但 `workspace/artifacts/` 没看到新文件
