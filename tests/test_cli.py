@@ -61,6 +61,18 @@ class TestCliParser:
         assert args.command == "reindex"
         assert args.scope == "test"
 
+    def test_reset_user_db_subcommand(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["reset-user-db"])
+        assert args.command == "reset-user-db"
+        assert args.yes is False
+
+    def test_reset_user_db_yes_flag(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["reset-user-db", "--yes"])
+        assert args.command == "reset-user-db"
+        assert args.yes is True
+
     def test_reconcile_subcommand(self) -> None:
         parser = _build_parser()
         args = parser.parse_args(["reconcile"])
@@ -79,6 +91,7 @@ class TestCliModule:
         assert result.returncode == 0
         assert "doctor" in result.stdout
         assert "init-soul" in result.stdout
+        assert "reset-user-db" in result.stdout
 
     def test_doctor_help(self) -> None:
         """python -m src.backend.cli doctor --help should exit 0."""
@@ -112,6 +125,17 @@ class TestCliModule:
         )
         assert result.returncode == 0
         assert "--from" in result.stdout
+
+    def test_reset_user_db_help(self) -> None:
+        """python -m src.backend.cli reset-user-db --help should exit 0."""
+        result = subprocess.run(
+            [sys.executable, "-m", "src.backend.cli", "reset-user-db", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert "--yes" in result.stdout
 
     def test_reconcile_help(self) -> None:
         """python -m src.backend.cli reconcile --help should exit 0."""
@@ -178,6 +202,75 @@ class TestReindexCli:
 
         assert code == 0
         assert execution_log == ["truncate", "reindex_all"]
+
+
+class TestResetUserDbCli:
+    @pytest.mark.asyncio
+    async def test_requires_explicit_confirmation(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """reset-user-db must refuse to run without --yes."""
+        from src.backend.cli import _run_reset_user_db
+
+        mock_db = MagicMock(host="localhost", port=5432, name="neomagi", schema_="neomagi")
+
+        with patch("src.config.settings.DatabaseSettings", return_value=mock_db):
+            code = await _run_reset_user_db(confirm=False)
+
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "Rerun with --yes" in out
+
+    @pytest.mark.asyncio
+    async def test_drop_then_upgrade_then_ensure_schema(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """reset-user-db should wipe schema, run Alembic, then ensure idempotent extras."""
+        from src.backend.cli import _run_reset_user_db
+
+        execution_log: list[str] = []
+        mock_db = MagicMock(host="localhost", port=5432, name="neomagi", schema_="neomagi")
+
+        mock_conn = AsyncMock()
+
+        async def track_execute(stmt):
+            stmt_str = str(stmt) if not hasattr(stmt, "text") else str(stmt.text)
+            if "DROP SCHEMA IF EXISTS neomagi CASCADE" in stmt_str:
+                execution_log.append("drop_schema")
+            return MagicMock()
+
+        mock_conn.execute = track_execute
+
+        drop_engine = MagicMock()
+        drop_engine.begin = MagicMock(return_value=_make_async_cm(mock_conn))
+        drop_engine.dispose = AsyncMock()
+
+        ensure_engine = MagicMock()
+        ensure_engine.dispose = AsyncMock()
+
+        async def track_ensure_schema(engine, schema):
+            assert engine is ensure_engine
+            assert schema == "neomagi"
+            execution_log.append("ensure_schema")
+
+        def track_upgrade() -> None:
+            execution_log.append("alembic_upgrade")
+
+        with (
+            patch("src.config.settings.DatabaseSettings", return_value=mock_db),
+            patch(
+                "src.session.database.create_db_engine",
+                side_effect=[drop_engine, ensure_engine],
+            ),
+            patch("src.session.database.ensure_schema", side_effect=track_ensure_schema),
+            patch("src.backend.cli._run_alembic_upgrade_head", side_effect=track_upgrade),
+        ):
+            code = await _run_reset_user_db(confirm=True)
+
+        assert code == 0
+        assert execution_log == ["drop_schema", "alembic_upgrade", "ensure_schema"]
+        out = capsys.readouterr().out
+        assert "reset-user-db complete" in out
 
 
 class TestInitSoulCli:

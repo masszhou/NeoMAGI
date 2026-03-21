@@ -4,6 +4,7 @@ Usage:
   python -m src.backend.cli doctor [--deep]
   python -m src.backend.cli init-soul [--from path]
   python -m src.backend.cli reindex [--scope main]
+  python -m src.backend.cli reset-user-db [--yes]
   python -m src.backend.cli reconcile
 """
 
@@ -15,7 +16,9 @@ import sys
 from pathlib import Path
 
 import structlog
+from alembic.config import Config
 
+from alembic import command
 from src.infra.logging import setup_logging
 
 logger = structlog.get_logger()
@@ -50,6 +53,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--from",
         dest="source",
         help="Optional source file to copy into workspace/SOUL.md before bootstrap",
+    )
+
+    reset_user_db_parser = sub.add_parser(
+        "reset-user-db",
+        help="Drop the user schema and rebuild it from Alembic migrations",
+    )
+    reset_user_db_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Required confirmation flag for destructive reset",
     )
 
     sub.add_parser("reconcile", help="Reconcile SOUL.md projection from DB")
@@ -132,6 +145,68 @@ async def _run_reconcile() -> int:
     finally:
         await engine.dispose()
 
+    return 0
+
+
+def _run_alembic_upgrade_head() -> None:
+    """Rebuild schema from the Alembic head revision."""
+    alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+    command.upgrade(Config(str(alembic_ini)), "head")
+
+
+async def _run_reset_user_db(confirm: bool) -> int:
+    """Drop the user schema and rebuild it from migrations."""
+    from sqlalchemy import text
+
+    from src.config.settings import DatabaseSettings
+    from src.session.database import create_db_engine, ensure_schema
+
+    db = DatabaseSettings()
+    target = f"{db.host}:{db.port}/{db.name} schema={db.schema_}"
+
+    if not confirm:
+        print(  # noqa: T201
+            "reset-user-db refused: this will permanently delete all data in "
+            f"{target}."
+        )
+        print("Rerun with --yes to confirm.")  # noqa: T201
+        return 1
+
+    logger.warning("reset_user_db_started", database=db.name, schema=db.schema_, host=db.host)
+    print(f"reset-user-db: dropping schema on {target}")  # noqa: T201
+
+    engine = await create_db_engine(db)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"DROP SCHEMA IF EXISTS {db.schema_} CASCADE"))
+    finally:
+        await engine.dispose()
+
+    try:
+        _run_alembic_upgrade_head()
+    except Exception:
+        logger.exception("reset_user_db_alembic_failed", database=db.name, schema=db.schema_)
+        print(  # noqa: T201
+            "reset-user-db failed during Alembic rebuild -- see logs for details",
+            file=sys.stderr,
+        )
+        return 1
+
+    engine = await create_db_engine(db)
+    try:
+        await ensure_schema(engine, db.schema_)
+    except Exception:
+        logger.exception("reset_user_db_ensure_schema_failed", database=db.name, schema=db.schema_)
+        print(  # noqa: T201
+            "reset-user-db failed during schema verification -- see logs for details",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        await engine.dispose()
+
+    logger.info("reset_user_db_done", database=db.name, schema=db.schema_)
+    print(f"reset-user-db complete: rebuilt {target} from a blank schema")  # noqa: T201
     return 0
 
 
@@ -306,6 +381,10 @@ def main() -> None:
 
     if args.command == "reindex":
         code = asyncio.run(_run_reindex(scope_key=args.scope))
+        sys.exit(code)
+
+    if args.command == "reset-user-db":
+        code = asyncio.run(_run_reset_user_db(confirm=args.yes))
         sys.exit(code)
 
     if args.command == "reconcile":

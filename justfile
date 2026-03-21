@@ -39,6 +39,16 @@ init-workspace:
 init-soul *ARGS:
     uv run python -m src.backend.cli init-soul {{ARGS}}
 
+# Drop all user data in the current DB schema and rebuild it from migrations.
+# Usage: just reset-user-db YES
+reset-user-db confirm="NO":
+    @if [ "{{confirm}}" != "YES" ]; then \
+        echo "Refusing to reset user DB. This will DROP the active schema and all user data."; \
+        echo "Run: just reset-user-db YES"; \
+        exit 1; \
+    fi
+    uv run python -m src.backend.cli reset-user-db --yes
+
 # Refresh JSONL backup of beads issue data (ADR 0052)
 beads-backup:
     bd backup --force
