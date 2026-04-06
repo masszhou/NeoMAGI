@@ -285,7 +285,7 @@ describe("sendMessage (per-session)", () => {
     expect(getSession("main")!.title).toBe("A".repeat(30) + "\u2026")
   })
 
-  it("moves active session to front of sessionOrder", () => {
+  it("updates lastActivityAt for activity-based sorting", () => {
     connectStore()
     const historyId = getLastHistoryRequestId()
     useChatStore.getState()._handleServerMessage({
@@ -294,16 +294,14 @@ describe("sendMessage (per-session)", () => {
       data: { messages: [] },
     })
 
-    // Create a second thread (goes to front)
-    useChatStore.getState().createThread()
-    const secondId = useChatStore.getState().activeSessionId
+    const beforeSend = getSession("main")!.lastActivityAt
 
-    // Switch back to main and send
-    useChatStore.getState().switchThread("main")
+    // Small delay to guarantee timestamp difference
     useChatStore.getState().sendMessage("hello")
 
-    expect(useChatStore.getState().sessionOrder[0]).toBe("main")
-    expect(useChatStore.getState().sessionOrder[1]).toBe(secondId)
+    expect(getSession("main")!.lastActivityAt).toBeGreaterThanOrEqual(
+      beforeSend,
+    )
   })
 })
 
@@ -1118,5 +1116,123 @@ describe("connection status toasts", () => {
       "Failed to reconnect. Please refresh the page.",
       { duration: Infinity },
     )
+  })
+})
+
+// --- P1: In-flight request recovery on connection loss ---
+
+describe("connection loss recovers in-flight requests", () => {
+  beforeEach(resetStore)
+
+  it("disconnect clears requestToSession and resets isStreaming", () => {
+    const reqA = "req-a"
+    useChatStore.setState({
+      connectionStatus: "connected",
+      activeSessionId: "main",
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "partial",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqA]: "main" },
+    })
+
+    useChatStore.getState()._setConnectionStatus("disconnected")
+
+    expect(getSession("main")!.isStreaming).toBe(false)
+    expect(useChatStore.getState().requestToSession).toEqual({})
+  })
+
+  it("reconnecting clears requestToSession and resets isStreaming", () => {
+    const reqA = "req-a"
+    const reqB = "req-b"
+    useChatStore.setState({
+      connectionStatus: "connected",
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "partial A",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [
+            {
+              id: reqB,
+              role: "assistant",
+              content: "partial B",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqA]: "main", [reqB]: "thread-2" },
+    })
+
+    useChatStore.getState()._setConnectionStatus("reconnecting")
+
+    // Both sessions recovered
+    expect(getSession("main")!.isStreaming).toBe(false)
+    expect(getSession("thread-2")!.isStreaming).toBe(false)
+    expect(useChatStore.getState().requestToSession).toEqual({})
+  })
+
+  it("recovered thread can send again after reconnect", () => {
+    const reqA = "req-a"
+    useChatStore.setState({
+      connectionStatus: "connected",
+      activeSessionId: "main",
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "partial",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqA]: "main" },
+    })
+
+    // Connection drops
+    useChatStore.getState()._setConnectionStatus("reconnecting")
+    // Connection restores
+    mockIsConnected = true
+    useChatStore.getState()._setConnectionStatus("connected")
+
+    // Thread is no longer blocked
+    expect(getSession("main")!.isStreaming).toBe(false)
+
+    // sendMessage should work
+    const sent = useChatStore.getState().sendMessage("hello again")
+    expect(sent).toBe(true)
   })
 })

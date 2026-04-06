@@ -115,17 +115,13 @@ function extractLastPreview(messages: ChatMessage[]): string {
   return ""
 }
 
-function moveToFront(order: string[], sessionId: string): string[] {
-  const filtered = order.filter((id) => id !== sessionId)
-  return [sessionId, ...filtered]
-}
-
 // --- localStorage persistence ---
 
 interface PersistedThreads {
   activeSessionId: string
   sessionOrder: string[]
   titles: Record<string, string>
+  lastActivityAt?: Record<string, number>
 }
 
 function loadPersistedThreads(): PersistedThreads | null {
@@ -144,9 +140,13 @@ function persistThreads(state: {
   sessionsById: Record<string, SessionViewState>
 }) {
   const titles: Record<string, string> = {}
+  const lastActivityAt: Record<string, number> = {}
   for (const id of state.sessionOrder) {
     const s = state.sessionsById[id]
-    if (s) titles[id] = s.title
+    if (s) {
+      titles[id] = s.title
+      lastActivityAt[id] = s.lastActivityAt
+    }
   }
   try {
     localStorage.setItem(
@@ -155,6 +155,7 @@ function persistThreads(state: {
         activeSessionId: state.activeSessionId,
         sessionOrder: state.sessionOrder,
         titles,
+        lastActivityAt,
       }),
     )
   } catch {
@@ -173,7 +174,11 @@ function bootstrapSessions(): {
   if (persisted && persisted.sessionOrder.length > 0) {
     const sessionsById: Record<string, SessionViewState> = {}
     for (const id of persisted.sessionOrder) {
-      sessionsById[id] = createSessionViewState(id, persisted.titles[id])
+      const session = createSessionViewState(id, persisted.titles[id])
+      if (persisted.lastActivityAt?.[id]) {
+        session.lastActivityAt = persisted.lastActivityAt[id]
+      }
+      sessionsById[id] = session
     }
     const activeSessionId = persisted.sessionOrder.includes(
       persisted.activeSessionId,
@@ -336,7 +341,6 @@ export const useChatStore = create<ChatState>()(
                   ...prev.requestToSession,
                   [requestId]: sessionId,
                 },
-                sessionOrder: moveToFront(prev.sessionOrder, sessionId),
               }
             },
             false,
@@ -453,6 +457,7 @@ export const useChatStore = create<ChatState>()(
                   false,
                   "streamComplete",
                 )
+                persistThreads(get())
               } else {
                 updateSession(
                   sessionId,
@@ -661,11 +666,12 @@ export const useChatStore = create<ChatState>()(
 
         _setConnectionStatus: (status: ConnectionStatus) => {
           if (status === "reconnecting" || status === "disconnected") {
-            // Clear ALL sessions' pending history guards
+            // Clear ALL sessions' pending history guards + in-flight requests
             set(
               (prev) => {
                 const updatedSessions = { ...prev.sessionsById }
-                let changed = false
+
+                // Clear pending history guards
                 for (const [sid, session] of Object.entries(
                   updatedSessions,
                 )) {
@@ -675,13 +681,29 @@ export const useChatStore = create<ChatState>()(
                       pendingHistoryId: null,
                       isHistoryLoading: false,
                     }
-                    changed = true
                   }
                 }
-                return changed ? { sessionsById: updatedSessions } : prev
+
+                // Reset isStreaming for sessions with in-flight requests
+                for (const sessionId of Object.values(
+                  prev.requestToSession,
+                )) {
+                  const session = updatedSessions[sessionId]
+                  if (session?.isStreaming) {
+                    updatedSessions[sessionId] = {
+                      ...session,
+                      isStreaming: false,
+                    }
+                  }
+                }
+
+                return {
+                  sessionsById: updatedSessions,
+                  requestToSession: {},
+                }
               },
               false,
-              "clearAllHistoryGuards",
+              "connectionLost",
             )
           }
 

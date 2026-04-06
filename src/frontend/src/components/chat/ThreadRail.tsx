@@ -29,7 +29,9 @@ export function ThreadRail() {
         </Button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {sessionOrder.map((sessionId) => {
+        {[...sessionOrder]
+          .sort((a, b) => (sessionsById[b]?.lastActivityAt ?? 0) - (sessionsById[a]?.lastActivityAt ?? 0))
+          .map((sessionId) => {
           const session = sessionsById[sessionId]
           if (!session) return null
           const isActive = sessionId === activeSessionId
