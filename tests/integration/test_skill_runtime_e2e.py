@@ -168,10 +168,23 @@ class FakeSkillStore:
                 p["status"] = status.value if hasattr(status, "value") else status
                 if applied_at:
                     p["applied_at"] = applied_at
+                if rolled_back_from is not None:
+                    p["rolled_back_from"] = rolled_back_from
 
     async def find_last_applied(self, skill_id):
         for p in reversed(self._proposals):
             if p["skill_id"] == skill_id and p["status"] == "active":
+                from src.skills.store import SkillProposalRecord
+                return SkillProposalRecord(**p)
+        return None
+
+    async def find_previous_applied(self, skill_id, *, before_governance_version):
+        for p in reversed(self._proposals):
+            if (
+                p["skill_id"] == skill_id
+                and p["status"] == "active"
+                and p["governance_version"] < before_governance_version
+            ):
                 from src.skills.store import SkillProposalRecord
                 return SkillProposalRecord(**p)
         return None
@@ -260,3 +273,40 @@ class TestSkillRuntimeE2E:
         # Verify evidence updated
         ev_map = await store.get_evidence(("sk-e2e",))
         assert ev_map["sk-e2e"].success_count == 2  # was 1
+
+    @pytest.mark.asyncio
+    async def test_rollback_removes_skill_from_runtime_resolution(self) -> None:
+        """After rollback with no previous snapshot, resolver no longer sees the skill."""
+        store = FakeSkillStore()
+        adapter = SkillGovernedObjectAdapter(store)  # type: ignore[arg-type]
+        policy_registry = PolicyRegistry()
+        engine = GrowthGovernanceEngine(
+            adapters={GrowthObjectKind.skill_spec: adapter},
+            policy_registry=policy_registry,
+        )
+        learner = SkillLearner(store, engine)  # type: ignore[arg-type]
+
+        spec = _make_spec()
+        evidence = _make_evidence()
+        gv = await learner.propose_new_skill(spec, evidence)
+        await engine.evaluate(GrowthObjectKind.skill_spec, gv)
+        await engine.apply(GrowthObjectKind.skill_spec, gv)
+
+        resolver = SkillResolver(registry=store)  # type: ignore[arg-type]
+        frame = TaskFrame(task_type=TaskType.create, target_outcome="review code")
+        candidates = await resolver.resolve(frame)
+        assert len(candidates) == 1
+
+        rollback_gv = await engine.rollback(GrowthObjectKind.skill_spec, skill_id="sk-e2e")
+        assert rollback_gv == 2
+        assert await store.list_active() == []
+
+        candidates_after = await resolver.resolve(frame)
+        assert candidates_after == []
+
+        rolled_back_from = next(
+            p["rolled_back_from"]
+            for p in store._proposals
+            if p["governance_version"] == rollback_gv
+        )
+        assert rolled_back_from == gv

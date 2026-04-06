@@ -118,6 +118,7 @@ def mock_store() -> AsyncMock:
     store.upsert_active = AsyncMock()
     store.disable = AsyncMock()
     store.find_last_applied = AsyncMock(return_value=None)
+    store.find_previous_applied = AsyncMock(return_value=None)
     store.list_active = AsyncMock(return_value=[_make_skill_spec()])
 
     # transaction() returns an async context manager yielding a mock session.
@@ -513,22 +514,56 @@ class TestRollback:
         assert disable_call.kwargs.get("session") is mock_store._mock_session
 
     @pytest.mark.asyncio
+    async def test_current_without_previous_disables(
+        self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
+    ) -> None:
+        current = _make_proposal_record(governance_version=3, status="active")
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+
+        gv = await adapter.rollback(skill_id="sk-001")
+        assert isinstance(gv, int)
+        mock_store.disable.assert_awaited_once()
+        mock_store.upsert_active.assert_not_awaited()
+        mock_store.update_proposal_status.assert_any_await(
+            3, GrowthLifecycleStatus.rolled_back, session=mock_store._mock_session
+        )
+
+    @pytest.mark.asyncio
     async def test_with_previous_re_materializes(
         self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
     ) -> None:
-        prev = _make_proposal_record(governance_version=2, status="active")
-        mock_store.find_last_applied = AsyncMock(return_value=prev)
+        current = _make_proposal_record(
+            governance_version=3,
+            status="active",
+            spec=_make_skill_spec(summary="Current skill"),
+        )
+        prev = _make_proposal_record(
+            governance_version=2,
+            status="active",
+            spec=_make_skill_spec(summary="Previous skill", delta=("restore previous",)),
+        )
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        mock_store.find_previous_applied = AsyncMock(return_value=prev)
         gv = await adapter.rollback(skill_id="sk-001")
         assert isinstance(gv, int)
         mock_store.upsert_active.assert_awaited_once()
+        mock_store.disable.assert_not_awaited()
+        upsert_call = mock_store.upsert_active.call_args
+        restored_spec = upsert_call.args[0]
+        assert restored_spec.summary == "Previous skill"
+        mock_store.update_proposal_status.assert_any_await(
+            3, GrowthLifecycleStatus.rolled_back, session=mock_store._mock_session
+        )
 
     @pytest.mark.asyncio
     async def test_rollback_passes_session_to_all_writes(
         self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
     ) -> None:
         """rollback() must pass the transaction session to every store write."""
+        current = _make_proposal_record(governance_version=3, status="active")
         prev = _make_proposal_record(governance_version=2, status="active")
-        mock_store.find_last_applied = AsyncMock(return_value=prev)
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        mock_store.find_previous_applied = AsyncMock(return_value=prev)
         await adapter.rollback(skill_id="sk-001")
         session = mock_store._mock_session
         # upsert_active
@@ -676,8 +711,10 @@ class TestRollbackAtomicity:
     async def test_upsert_failure_propagates(
         self, adapter: SkillGovernedObjectAdapter, mock_store: AsyncMock
     ) -> None:
+        current = _make_proposal_record(governance_version=3, status="active")
         prev = _make_proposal_record(governance_version=2, status="active")
-        mock_store.find_last_applied = AsyncMock(return_value=prev)
+        mock_store.find_last_applied = AsyncMock(return_value=current)
+        mock_store.find_previous_applied = AsyncMock(return_value=prev)
         mock_store.upsert_active = AsyncMock(
             side_effect=RuntimeError("DB write failed")
         )

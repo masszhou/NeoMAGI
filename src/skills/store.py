@@ -475,3 +475,27 @@ class SkillStore:
             if row is None:
                 return None
             return _row_to_proposal_record(row)
+
+    async def find_previous_applied(
+        self,
+        skill_id: str,
+        *,
+        before_governance_version: int,
+    ) -> SkillProposalRecord | None:
+        """Find the most recent applied entry before a given governance version."""
+        sql = text(
+            f"SELECT {_VERSION_COLS} FROM {DB_SCHEMA}.skill_spec_versions "
+            "WHERE skill_id = :skill_id AND status = 'active' "
+            "AND governance_version < :before_governance_version "
+            "ORDER BY governance_version DESC LIMIT 1"
+        )
+        params = {
+            "skill_id": skill_id,
+            "before_governance_version": before_governance_version,
+        }
+        async with self._db_factory() as db:
+            result = await db.execute(sql, params)
+            row = result.first()
+            if row is None:
+                return None
+            return _row_to_proposal_record(row)

@@ -395,6 +395,28 @@ class TestFindLastApplied:
         assert rec is None
 
 
+class TestFindPreviousApplied:
+    @pytest.mark.asyncio
+    async def test_found(self) -> None:
+        factory, session = _make_mock_session_factory()
+        row = _fake_version_row(governance_version=2, status="active")
+        mock_result = MagicMock()
+        mock_result.first.return_value = row
+        session.execute = AsyncMock(return_value=mock_result)
+
+        store = SkillStore(factory)
+        rec = await store.find_previous_applied("sk-001", before_governance_version=3)
+        assert rec is not None
+        assert rec.governance_version == 2
+
+    @pytest.mark.asyncio
+    async def test_not_found(self) -> None:
+        factory, _ = _make_mock_session_factory()
+        store = SkillStore(factory)
+        rec = await store.find_previous_applied("sk-nonexistent", before_governance_version=3)
+        assert rec is None
+
+
 # ---------------------------------------------------------------------------
 # External-session support (transaction + session= kwarg)
 # ---------------------------------------------------------------------------
