@@ -24,13 +24,7 @@
 - `SOUL` 的受治理闭环：`status -> propose -> rollback`
 - 人类教学意图触发 `skill_spec` proposal
 - `skill_spec` 作为正式 growth object 的治理与复用闭环
-- builder work memory 双层结构：
-  - `workspace/artifacts/` 作为 canonical artifact
-  - `bd / beads` 作为索引层
-- `wrapper_tool` 作为正式 onboarded growth object 的 promote / apply / rollback 闭环
-- curated growth cases：
-  - `GC-1` human-taught skill reuse
-  - `GC-2` skill-to-wrapper-tool promotion
+- builder work memory / growth case / `wrapper_tool` 的实现层回归入口（见附录 Section 11）
 
 不在本指导范围内：
 - `Procedure Runtime` / 多 agent runtime（`P2-M2`）
@@ -43,8 +37,8 @@
 
 - A 层：WebChat 手工验证
   - 验证用户可直接感知的成长治理能力
-- B 层：受控回放验证
-  - 使用仓库命令、定向测试与产物检查，验证 builder / growth case / wrapper promote 闭环
+- B 层：用户交互闭环验证（operator-assisted）
+  - 用户负责真实交互；operator 只在批准、回滚、重启等必要节点辅助
 
 建议顺序：先做 A 层，再做 B 层。
 
@@ -360,152 +354,311 @@ just check-governance-tables
   - 如触发受限工具，应显示当前为 `chat_safe`，代码/文件工具不可用。
   - 这说明 `P2-M1` 并未绕过原有安全边界。
 
-## 6. B 层：受控回放测试用例
+## 6. B 层：用户交互闭环测试（operator-assisted）
 
-这一层用于验证 `P2-M1` 的关键闭环已经真实存在，而不是只在对话里"声称支持"。
+这一层改为**用户主导、operator 辅助**的手工验收。
+目标是验证用户真正能感知到的闭环，而不是人工触发 `pytest`。
+
+说明：
+- `skill_spec` 目前已经接入真实 runtime，因此可以做有意义的用户手测。
+- `builder work memory`、`growth case artifact`、`wrapper_tool promote` 这些实现层闭环虽然存在工程价值，但当前还没有直接挂到普通用户聊天入口。
+- 因此，它们**不应继续伪装成手工用户验收**。对应的 `pytest` 回归命令已移到 [Section 11](#11-附录开发回归命令不计入手工用户验收)。
 
 ### 前置条件速查
 
-| 用例 | 需要 PG | 说明 |
-|------|---------|------|
-| T07 | **是** | skill runtime e2e，需要 skill_specs/skill_evidence 表 |
-| T08 | **是** | GC-1 集成，需要 skill governance 表 |
-| T09 | **是** | GC-2 集成，需要 wrapper_tools 表 |
-| T10 | 否 | builder work memory，使用临时目录和 mock |
-| T11 | 否 | wrapper tool 启动恢复，使用 mock store |
+| 用例 | 需要 PG | 需要 operator 步骤 | 说明 |
+|------|---------|--------------------|------|
+| T07 | **是** | 低 | 用户重新做一轮可复用教学，operator 只需确认 proposal 已产生 |
+| T08 | **是** | **是** | operator 批准 skill 后，用户在新 session 验证 reuse |
+| T09 | **是** | **是** | 重启 backend 后，在新 session 验证 learned skill 仍然存在 |
+| T10 | **是** | 否 | 验证 learned skill 不应污染不相似任务 |
+| T11 | **是** | **是** | operator rollback/disable 后，用户验证 learned effect 消失 |
 
-建议顺序：先跑不需要 PG 的 T10/T11，再跑需要 PG 的 T07~T09。
+建议顺序：`T07 -> T08 -> T09 -> T10 -> T11`
 
-### T07 Skill Runtime 最小闭环
+### Operator 辅助脚本：查看最近 skill proposal
 
-> 前置：PG running + migration done
-
-执行：
+`T07/T08/T11` 会用到下面这个只读脚本：
 
 ```bash
-uv run pytest tests/integration/test_skill_runtime_e2e.py -q
+uv run python - <<'PY'
+import asyncio
+from sqlalchemy import text
+
+from src.config.settings import get_settings
+from src.session.database import create_db_engine
+
+
+async def main():
+    settings = get_settings()
+    schema = settings.database.schema_
+    engine = await create_db_engine(settings.database)
+    try:
+        async with engine.connect() as conn:
+            rows = (
+                await conn.execute(
+                    text(f"""
+                        SELECT governance_version, skill_id, status, created_by, created_at
+                        FROM {schema}.skill_spec_versions
+                        ORDER BY governance_version DESC
+                        LIMIT 5
+                    """)
+                )
+            ).fetchall()
+        for row in rows:
+            print(
+                {
+                    "governance_version": row.governance_version,
+                    "skill_id": row.skill_id,
+                    "status": row.status,
+                    "created_by": row.created_by,
+                    "created_at": str(row.created_at),
+                }
+            )
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(main())
+PY
 ```
 
-预期：
-- 用例通过。
-- 证明 `skill_spec` 的 `propose -> evaluate -> apply -> resolve -> project` 已完整存在。
+### Operator 辅助脚本：批准最近一个 `proposed` skill
 
-### T08 `GC-1` Human-Taught Skill Reuse
-
-> 前置：PG running + migration done
-
-执行：
+`T08` 会用到下面这个脚本：
 
 ```bash
-uv run pytest tests/growth/test_gc1_integration.py -q
+uv run python - <<'PY'
+import asyncio
+from sqlalchemy import text
+
+from src.config.settings import get_settings
+from src.growth.adapters.skill import SkillGovernedObjectAdapter
+from src.growth.engine import GrowthGovernanceEngine
+from src.growth.policies import PolicyRegistry
+from src.growth.types import GrowthObjectKind
+from src.session.database import create_db_engine, make_session_factory
+from src.skills.store import SkillStore
+
+
+async def main():
+    settings = get_settings()
+    schema = settings.database.schema_
+    engine = await create_db_engine(settings.database)
+    try:
+        session_factory = make_session_factory(engine)
+        store = SkillStore(session_factory)
+        gov = GrowthGovernanceEngine(
+            adapters={GrowthObjectKind.skill_spec: SkillGovernedObjectAdapter(store)},
+            policy_registry=PolicyRegistry(),
+        )
+
+        async with engine.connect() as conn:
+            gv = (
+                await conn.execute(
+                    text(f"""
+                        SELECT governance_version
+                        FROM {schema}.skill_spec_versions
+                        WHERE status = 'proposed'
+                        ORDER BY governance_version DESC
+                        LIMIT 1
+                    """)
+                )
+            ).scalar_one()
+
+        result = await gov.evaluate(GrowthObjectKind.skill_spec, gv)
+        print({"governance_version": gv, "passed": result.passed, "summary": result.summary})
+        if result.passed:
+            await gov.apply(GrowthObjectKind.skill_spec, gv)
+            print({"applied": gv})
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(main())
+PY
 ```
 
-预期：
-- 用例通过。
-- 覆盖以下闭环：
-  - 教学意图检测
-  - `SkillLearner.propose_new_skill()`
-  - `GrowthGovernanceEngine.evaluate()/apply()`
-  - `SkillResolver` 命中
-  - `SkillProjector` 生成 delta
-  - `CaseRunner` 产出 artifact
+### Operator 辅助脚本：回滚当前 active skill
 
-### T09 `GC-2` Skill -> Wrapper Tool Promotion
-
-> 前置：PG running + migration done
-
-执行：
+`T11` 会用到下面这个脚本：
 
 ```bash
-uv run pytest tests/growth/test_gc2_integration.py -q
+uv run python - <<'PY'
+import asyncio
+from sqlalchemy import text
+
+from src.config.settings import get_settings
+from src.growth.adapters.skill import SkillGovernedObjectAdapter
+from src.growth.engine import GrowthGovernanceEngine
+from src.growth.policies import PolicyRegistry
+from src.growth.types import GrowthObjectKind
+from src.session.database import create_db_engine, make_session_factory
+from src.skills.store import SkillStore
+
+
+async def main():
+    settings = get_settings()
+    schema = settings.database.schema_
+    engine = await create_db_engine(settings.database)
+    try:
+        session_factory = make_session_factory(engine)
+        store = SkillStore(session_factory)
+        gov = GrowthGovernanceEngine(
+            adapters={GrowthObjectKind.skill_spec: SkillGovernedObjectAdapter(store)},
+            policy_registry=PolicyRegistry(),
+        )
+
+        async with engine.connect() as conn:
+            skill_id = (
+                await conn.execute(
+                    text(f"""
+                        SELECT skill_id
+                        FROM {schema}.skill_spec_versions
+                        WHERE status = 'active'
+                        ORDER BY governance_version DESC
+                        LIMIT 1
+                    """)
+                )
+            ).scalar_one()
+
+        new_version = await gov.rollback(GrowthObjectKind.skill_spec, skill_id=skill_id)
+        print({"skill_id": skill_id, "rollback_version": new_version})
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(main())
+PY
 ```
 
-预期：
-- 用例通过。
-- 覆盖以下闭环：
-  - 满足 promote entry conditions
-  - `wrapper_tool` proposal
-  - eval 通过 5 个 checks
-  - apply 后进入 `ToolRegistry`
-  - 失败场景可 veto / rollback
+### T07 用户教学 -> proposal 可见
 
-### T10 Builder Work Memory 双层结构
+这一轮不要沿用宽泛的“长期偏好”表达，而要用**可复用、可观测、带英文关键 token**的教学语句，方便后续验证 reuse 是否真的发生。
 
-> 前置：无（使用临时目录和 mock）
+- 示例输入（建议新开一个 session）：
+  - `记住这个方法：以后当我说 "format python code with ruff" 这类任务时，固定按这个顺序回答：先单独写一行 Goal: ...，再给 Step 1 / Step 2 / Step 3，最后单独写一行 Verify: ...；并且默认优先 ruff format，不要先建议 black。`
+- 预期：
+  - assistant 正常回应，不需要显式暴露内部 proposal 细节。
+  - 在后端日志中不应看到 `teaching_skill_proposal_failed`。
+  - operator 运行“查看最近 skill proposal”脚本后，应能看到一条新的 `status='proposed'` 记录。
+  - 记录下这条记录的 `governance_version` 和 `skill_id`，供 `T08/T11` 使用。
 
-执行：
+### T08 operator 批准后，在新 session 验证 reuse
+
+- 前置：T07 已看到新的 `proposed` skill proposal。
+- operator 步骤：
+  - 运行“批准最近一个 `proposed` skill”脚本。
+  - 再执行一次：
 
 ```bash
-uv run pytest tests/builder/test_work_memory.py -q
+just check-governance-tables
 ```
 
-预期：
-- 用例通过。
-- 证明：
-  - `workspace/artifacts/builder_runs/` 可生成 canonical artifact
-  - `bd` 作为 best-effort index 可被调用
-  - `update_task_progress()` 能更新 artifact 与 bead comment
+  - 应能看到 `skill_specs` / `skill_evidence` / `skill_spec_versions` 非空。
+- 用户步骤：
+  - **新开一个 session**，不要沿用 T07 的同一段聊天。
+  - 输入：
+    - `请给我 format python code with ruff 的最短操作步骤。`
+- 预期：
+  - 回复里应明显体现 T07 教学的结构：
+    - 有单独的 `Goal:` 行
+    - 有 `Step 1 / Step 2 / Step 3`
+    - 有单独的 `Verify:` 行
+  - 内容上应优先建议 `ruff format`，而不是先建议 `black`。
+  - 这说明 learned skill 已经不只是 proposal，而是进入了 current-state 并在新 session 中被 resolver/projector 复用。
 
-### T11 Wrapper Tool 启动恢复
+### T09 重启 backend 后，reuse 仍然存在
 
-> 前置：无（使用 mock store）
-
-执行：
+- 前置：T08 已通过，且当前有一个 active skill。
+- operator 步骤：
+  - 停掉当前后端进程，再重新启动：
 
 ```bash
-uv run pytest tests/growth/test_wrapper_tool_adapter.py -q -k restore_active_wrappers
+just dev-backend
 ```
 
-预期：
-- 用例通过。
-- 证明网关启动时可从 DB 恢复 active wrappers 到 `ToolRegistry`，不是只在 apply 当下有效。
+  - 等前端重新可用。
+- 用户步骤：
+  - **再次新开一个 session**。
+  - 输入：
+    - `帮我 update python files: format python code with ruff，并给 verify command。`
+- 预期：
+  - 回复仍应延续 T08 中的 learned 结构和 `ruff` 优先级，而不是退回到“只靠上一段会话上下文”。
+  - 这说明 skill current-state 是持久化在 DB 中，而不是一次性进程内状态。
 
-## 7. 产物检查点
+### T10 不相似任务不应被 learned skill 污染
 
-完成上述测试后，可检查以下产物。
+- 前置：T08/T09 已通过，当前 active skill 仍然存在。
+- 用户步骤：
+  - 新开一个 session，输入：
+    - `请 summarize 这份设计文档的核心结论，用 5 条 bullet 即可；这个任务和 python formatting 无关。`
+- 预期：
+  - assistant 可以正常完成总结任务。
+  - 回复**不应**机械地套用 `Goal:` / `Step 1/2/3` / `Verify:` 这套 `format python code with ruff` 专用结构。
+  - 回复**不应**无关地提到 `ruff format`、`black` 或 python formatting。
+  - 这说明 resolver 没有把 learned skill 粗暴污染到不相似任务。
 
-### 7.1 workspace artifacts
+### T11 rollback / disable 后，learned effect 消失
 
-```bash
-find workspace/artifacts -maxdepth 3 -type f | sort
-```
+- 前置：T08/T09 已通过，且当前存在 active skill。
+- operator 步骤：
+  - 运行“回滚当前 active skill”脚本。
+  - 再运行一次“查看最近 skill proposal”脚本，确认最近记录中出现新的 rollback 相关版本。
+- 用户步骤：
+  - 新开一个 session，重复 T08 的相似请求：
+    - `请给我 format python code with ruff 的最短操作步骤。`
+- 预期：
+  - assistant 仍可能给出一个合理回答，但**不应再稳定地表现出 T07 人工教进去的那套固定结构**。
+  - 尤其不应再稳定出现：
+    - 单独的 `Goal:` 行
+    - 固定的 `Step 1 / Step 2 / Step 3`
+    - 单独的 `Verify:` 行
+  - 这说明 rollback/disable 影响到了 runtime current-state，而不是只改了日志。
 
-预期至少可看到这两类路径：
-- `workspace/artifacts/builder_runs/*.md`
-- `workspace/artifacts/growth_cases/gc-1/*.md`
-- `workspace/artifacts/growth_cases/gc-2/*.md`
+## 7. 观察点
 
-### 7.2 skill / wrapper governance tables
+完成上述手工测试后，可检查以下观察点。
 
-执行：
+### 7.1 skill governance tables
 
 ```bash
 just check-governance-tables
 ```
 
 预期：
-- `skill_specs` / `skill_spec_versions` 非空
-- `wrapper_tool_versions` 在跑过 `GC-2` 后应有记录
+- `skill_spec_versions` 非空
+- 跑完 `T08` 后，`skill_specs` / `skill_evidence` 非空
+- 跑完 `T11` 后，行数不一定减少，但最近 ledger 中应出现 rollback 相关记录
 
-### 7.3 bd issue 索引
+### 7.2 最近的 skill ledger 记录
 
-```bash
-bd ready --json
-```
+执行“查看最近 skill proposal”脚本。
 
 预期：
-- 命令可正常返回 JSON。
-- 若跑过 builder work memory 相关路径，bd 中应可看到对应 issue / comment / artifact 引用。
+- 你能清楚看到 `proposed -> active -> rolled_back` 这类状态变化，而不是只看到 row count 增长。
+- `created_by` 对用户教学路径通常会是 `user`。
+
+### 7.3 关于 `workspace/artifacts/` 和 `bd`
+
+- 在**当前手工用户验收**里，`workspace/artifacts/growth_cases/`、`workspace/artifacts/builder_runs/`、`bd comments` **不作为必看项**。
+- 原因不是这些实现没价值，而是当前普通用户聊天入口还没有把 `CaseRunner` / builder work memory 直接暴露成产品交互步骤。
+- 若你要做工程回归，可看 [Section 11](#11-附录开发回归命令不计入手工用户验收)。
 
 ## 8. 通过标准
 
 建议按以下口径判定 `P2-M1` 用户验收通过：
 
 - A 层 WebChat 用例 `T01`~`T06` 全部通过
-- B 层回放用例 `T07`~`T11` 全部通过
-- `workspace/artifacts/` 中能看到 builder 与 growth case 产物
-- `skill_spec` 与 `wrapper_tool` 治理表中存在对应记录
+- B 层手工交互用例 `T07`~`T11` 全部通过
+- 至少一条用户教学经验能完成：
+  - proposal 产生
+  - operator 批准
+  - 新 session reuse
+  - backend 重启后仍可 reuse
+  - rollback 后 effect 消失
 - 没有出现"需要关闭安全边界才能完成 `P2-M1` 验收"的情况
+- `GC-1` / `GC-2` / builder / wrapper 的 `pytest` 回归结果不再作为手工用户验收必过项
 
 ## 9. 常见问题与处理
 
@@ -519,26 +672,34 @@ bd ready --json
 - 使用 `just check-governance-tables` 检查，避免手写 SQL 脚本出错
 - 再确认后端日志中没有 `teaching_skill_proposal_failed`
 
-### 9.2 `GC-1` / `GC-2` 测试通过，但 `workspace/artifacts/` 没看到新文件
+### 9.2 `T08` 已 apply，但新 session 看不出明显 reuse
 
-- 先确认测试是否在临时目录中运行。
-- 若要做真实 workspace 产物验收，可补跑：
+- 先确认你真的**新开了一个 session**，而不是还在沿用 T07 那段对话。
+- 确认 operator 批准的是**最新那条** `status='proposed'` skill proposal，而不是旧记录。
+- 再执行一次“查看最近 skill proposal”脚本，确认至少有一条 `status='active'` 的 skill 记录。
+- 检查教学文案是否足够具体：
+  - 最好包含可复用的英文关键 token，如 `format python code with ruff`
+  - 最好包含可观测格式，如 `Goal:` / `Step 1` / `Verify:`
+- 纯中文抽象偏好（例如“以后回答更适合我”）更容易退化成 `USER` 风格偏好，不适合拿来测 skill reuse。
 
-```bash
-find . -path '*growth_cases*' -o -path '*builder_runs*'
-```
+### 9.3 为什么新版手工验收里不再要求 `workspace/artifacts/` 或 `bd`
 
-### 9.3 `bd` 命令不存在
+- 因为当前普通用户聊天入口还没有把 builder work memory / growth case runner 直接暴露成产品操作。
+- 它们仍然可以做工程回归，但不适合继续写成“用户手工交互步骤”。
+- 如果你要验证这些实现层闭环，请看 [Section 11](#11-附录开发回归命令不计入手工用户验收)。
 
-- builder work memory 的 artifact truth 仍在 `workspace/artifacts/`。
-- `bd` 不可用时，系统应退化为 artifact-only，而不是阻塞核心闭环。
+### 9.4 `bd` 命令不存在
 
-### 9.4 想验证 `coding` 模式为什么还不开放
+- 这不会阻塞当前这版手工用户验收。
+- `bd` / builder work memory 相关内容已经移到附录里的开发回归命令。
+- 当前手工验收的核心是 `skill_spec` proposal / apply / reuse / rollback 的用户可感知闭环。
+
+### 9.5 想验证 `coding` 模式为什么还不开放
 
 - 这是当前产品边界，不是 `P2-M1` 未完成。
 - 当前 `SessionManager` 仍会将非 `chat_safe` mode fail-closed 到 `chat_safe`，属于既定行为。
 
-### 9.5 中断多天后回来，不确定上次跑到哪里
+### 9.6 中断多天后回来，不确定上次跑到哪里
 
 - 查看 `dev_docs/logs/phase2/p2-m1_user_acceptance.md` 中的执行记录表。
 - 如果不确定 DB 状态是否干净，建议按 Section 3.0 重新开始。
@@ -558,7 +719,45 @@ find . -path '*growth_cases*' -o -path '*builder_runs*'
 
 多次执行时，在同一文件中追加新的表格即可。
 
-## 11. 退出与清理
+## 11. 附录：开发回归命令（不计入手工用户验收）
+
+如果你要做实现层回归，而不是用户手工交互验收，可按需运行这些命令：
+
+### 11.1 Skill runtime e2e
+
+```bash
+uv run pytest tests/integration/test_skill_runtime_e2e.py -q
+```
+
+### 11.2 `GC-1` Human-Taught Skill Reuse
+
+```bash
+uv run pytest tests/growth/test_gc1_integration.py -q
+```
+
+### 11.3 `GC-2` Skill -> Wrapper Tool Promotion
+
+```bash
+uv run pytest tests/growth/test_gc2_integration.py -q
+```
+
+### 11.4 Builder Work Memory
+
+```bash
+uv run pytest tests/builder/test_work_memory.py -q
+```
+
+### 11.5 Wrapper Tool 启动恢复
+
+```bash
+uv run pytest tests/growth/test_wrapper_tool_adapter.py -q -k restore_active_wrappers
+```
+
+说明：
+- 这些命令仍有工程价值，但它们验证的是实现层闭环，不是普通用户当前能直接操作到的产品闭环。
+- 因此，它们不再作为 `P2-M1` 手工用户验收的必过项。
+
+## 12. 退出与清理
 
 - 停止前后端：对应终端 `Ctrl+C`
 - 若使用了测试容器，可执行：
