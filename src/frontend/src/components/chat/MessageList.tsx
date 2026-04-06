@@ -3,7 +3,9 @@ import { MessageBubble } from "./MessageBubble"
 import { useAutoScroll } from "@/hooks/useAutoScroll"
 
 export function MessageList() {
-  const messages = useChatStore((state) => state.messages)
+  const messages = useChatStore(
+    (state) => state.sessionsById[state.activeSessionId]?.messages ?? [],
+  )
   const { containerRef, bottomRef, handleScroll } = useAutoScroll(messages)
 
   return (

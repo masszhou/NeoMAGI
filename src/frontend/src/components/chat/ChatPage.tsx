@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { ConnectionStatus } from "./ConnectionStatus"
 import { MessageList } from "./MessageList"
 import { MessageInput } from "./MessageInput"
+import { ThreadRail } from "./ThreadRail"
 
 const WS_URL = "ws://localhost:19789/ws"
 
@@ -17,13 +18,16 @@ export function ChatPage() {
   }, [connect, disconnect])
 
   return (
-    <div className="mx-auto flex h-screen max-w-3xl flex-col border-x bg-background">
-      <header className="border-b px-4 py-3">
-        <h1 className="text-lg font-semibold">NeoMAGI</h1>
-      </header>
-      <ConnectionStatus />
-      <MessageList />
-      <MessageInput />
+    <div className="flex h-screen bg-background">
+      <ThreadRail />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="border-b px-4 py-3">
+          <h1 className="text-lg font-semibold">NeoMAGI</h1>
+        </header>
+        <ConnectionStatus />
+        <MessageList />
+        <MessageInput />
+      </div>
       <Toaster position="top-right" richColors closeButton />
     </div>
   )

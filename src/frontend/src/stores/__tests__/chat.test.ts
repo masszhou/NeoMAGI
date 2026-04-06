@@ -1,15 +1,17 @@
 /**
- * Tests for chat store guard recovery behavior (M1.3 R6f).
+ * Tests for multi-session chat store (P2-M1 Post Works P1).
  *
- * Strategy: mock WebSocketClient to control isConnected and capture sent
- * messages, then exercise the full loadHistory → error/disconnect flow
- * to verify guard recovery via the actual closure state.
+ * Covers: per-session state, event routing via requestToSession,
+ * history routing via pendingHistoryId, background completion,
+ * thread creation/switching, localStorage persistence, and
+ * cross-thread isolation.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { useChatStore } from "../chat"
+import { useChatStore, createSessionViewState } from "../chat"
+import type { ChatState } from "../chat"
 import type { RPCRequest } from "@/types/rpc"
 
-// Mock sonner toast to prevent import errors in test environment
+// Mock sonner toast
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
@@ -17,6 +19,17 @@ vi.mock("sonner", () => ({
     success: vi.fn(),
   },
 }))
+
+// Mock localStorage (Node.js 22+ built-in localStorage lacks standard Storage API)
+const _storage = new Map<string, string>()
+vi.stubGlobal("localStorage", {
+  getItem: (key: string) => _storage.get(key) ?? null,
+  setItem: (key: string, value: string) => _storage.set(key, String(value)),
+  removeItem: (key: string) => _storage.delete(key),
+  clear: () => _storage.clear(),
+  get length() { return _storage.size },
+  key: (index: number) => [..._storage.keys()][index] ?? null,
+})
 
 // Controllable mock for WebSocketClient
 let mockIsConnected = false
@@ -52,32 +65,35 @@ vi.mock("@/lib/websocket", () => {
   }
 })
 
+// --- Helpers ---
+
 function resetStore() {
-  // Reset the zustand store's visible state
   useChatStore.setState({
-    messages: [],
+    activeSessionId: "main",
+    sessionOrder: ["main"],
+    sessionsById: { main: createSessionViewState("main") },
+    requestToSession: {},
     connectionStatus: "disconnected",
-    isStreaming: false,
-    isHistoryLoading: false,
-  })
-  // Reset mocks
+  } as Partial<ChatState>)
   mockIsConnected = false
   mockSend.mockClear()
   mockClose.mockClear()
   mockConnect.mockClear()
+  _storage.clear()
 }
 
-/** Connect the store and simulate the WS becoming ready. */
 function connectStore() {
   const store = useChatStore.getState()
   store.connect("ws://test")
   mockIsConnected = true
-  // Simulate WebSocket open → triggers onConnected → loadHistory
   mockCallbacks.onStatusChange?.("connected")
   mockCallbacks.onConnected?.()
 }
 
-/** Get the pendingHistoryId from the last loadHistory call. */
+function getSession(sessionId: string) {
+  return useChatStore.getState().sessionsById[sessionId]
+}
+
 function getLastHistoryRequestId(): string {
   const lastCall = mockSend.mock.calls[mockSend.mock.calls.length - 1]
   const request = lastCall[0] as RPCRequest
@@ -85,381 +101,526 @@ function getLastHistoryRequestId(): string {
   return request.id
 }
 
-describe("chat store guard recovery", () => {
-  beforeEach(() => {
-    resetStore()
-  })
+function getLastSendRequestId(): string {
+  const lastCall = mockSend.mock.calls[mockSend.mock.calls.length - 1]
+  const request = lastCall[0] as RPCRequest
+  expect(request.method).toBe("chat.send")
+  return request.id
+}
+
+// --- Guard Recovery (per-session) ---
+
+describe("per-session history guard recovery", () => {
+  beforeEach(resetStore)
 
   it("clears history guard on error matching pendingHistoryId", () => {
     connectStore()
-
-    // loadHistory was called by onConnected, capture the requestId
     const requestId = getLastHistoryRequestId()
-    expect(useChatStore.getState().isHistoryLoading).toBe(true)
+    expect(getSession("main")!.isHistoryLoading).toBe(true)
 
-    // Simulate server error response with matching ID
     useChatStore.getState()._handleServerMessage({
       type: "error",
       id: requestId,
       error: { code: "INTERNAL_ERROR", message: "something failed" },
     })
 
-    expect(useChatStore.getState().isHistoryLoading).toBe(false)
+    expect(getSession("main")!.isHistoryLoading).toBe(false)
+    expect(getSession("main")!.pendingHistoryId).toBeNull()
   })
 
-  it("clears history guard on disconnect", () => {
-    connectStore()
-    expect(useChatStore.getState().isHistoryLoading).toBe(true)
+  it("clears ALL sessions' history guards on disconnect", () => {
+    // Set up two sessions with pending history
+    useChatStore.setState({
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          pendingHistoryId: "h1",
+          isHistoryLoading: true,
+        },
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          pendingHistoryId: "h2",
+          isHistoryLoading: true,
+        },
+      },
+    })
 
-    // Simulate disconnect
     useChatStore.getState()._setConnectionStatus("disconnected")
 
-    expect(useChatStore.getState().isHistoryLoading).toBe(false)
-    expect(useChatStore.getState().connectionStatus).toBe("disconnected")
+    expect(getSession("main")!.isHistoryLoading).toBe(false)
+    expect(getSession("main")!.pendingHistoryId).toBeNull()
+    expect(getSession("thread-2")!.isHistoryLoading).toBe(false)
+    expect(getSession("thread-2")!.pendingHistoryId).toBeNull()
   })
 
-  it("clears history guard on reconnecting", () => {
-    connectStore()
-    expect(useChatStore.getState().isHistoryLoading).toBe(true)
+  it("clears ALL sessions' history guards on reconnecting", () => {
+    useChatStore.setState({
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          pendingHistoryId: "h1",
+          isHistoryLoading: true,
+        },
+      },
+    })
 
-    // Simulate reconnecting
     useChatStore.getState()._setConnectionStatus("reconnecting")
 
-    expect(useChatStore.getState().isHistoryLoading).toBe(false)
-    expect(useChatStore.getState().connectionStatus).toBe("reconnecting")
+    expect(getSession("main")!.isHistoryLoading).toBe(false)
+    expect(getSession("main")!.pendingHistoryId).toBeNull()
   })
 
   it("clears history guard on timeout", () => {
     vi.useFakeTimers()
     try {
       connectStore()
-      expect(useChatStore.getState().isHistoryLoading).toBe(true)
-
-      // Advance time past the 10s timeout
+      expect(getSession("main")!.isHistoryLoading).toBe(true)
       vi.advanceTimersByTime(10_000)
-
-      expect(useChatStore.getState().isHistoryLoading).toBe(false)
+      expect(getSession("main")!.isHistoryLoading).toBe(false)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it("timeout does not clear guard if already resolved", () => {
+  it("timeout is no-op if already resolved", () => {
     vi.useFakeTimers()
     try {
       connectStore()
       const requestId = getLastHistoryRequestId()
 
-      // Resolve the history before timeout fires
       useChatStore.getState()._handleServerMessage({
         type: "response",
         id: requestId,
         data: { messages: [] },
       })
-      expect(useChatStore.getState().isHistoryLoading).toBe(false)
+      expect(getSession("main")!.isHistoryLoading).toBe(false)
 
-      // Advance time — timeout fires but should be no-op
       vi.advanceTimersByTime(10_000)
-      expect(useChatStore.getState().isHistoryLoading).toBe(false)
+      expect(getSession("main")!.isHistoryLoading).toBe(false)
     } finally {
       vi.useRealTimers()
     }
   })
+})
 
-  it("sendMessage blocked during history loading", () => {
+// --- Send message ---
+
+describe("sendMessage (per-session)", () => {
+  beforeEach(resetStore)
+
+  it("blocks during history loading of active thread", () => {
     connectStore()
-    expect(useChatStore.getState().isHistoryLoading).toBe(true)
-
-    // sendMessage should return false when history is loading
+    expect(getSession("main")!.isHistoryLoading).toBe(true)
     const result = useChatStore.getState().sendMessage("hello")
     expect(result).toBe(false)
   })
 
-  it("sendMessage returns false when not connected", () => {
-    // wsClient is null (not connected)
+  it("returns false when not connected", () => {
     const result = useChatStore.getState().sendMessage("hello")
     expect(result).toBe(false)
   })
 
-  it("full replacement on history response (no duplicates)", () => {
+  it("adds messages to active session only", () => {
     connectStore()
-
-    const requestId = getLastHistoryRequestId()
-
-    // Pre-populate with local messages to verify replacement
-    useChatStore.setState({
-      messages: [
-        {
-          id: "local-1",
-          role: "user",
-          content: "local message",
-          timestamp: Date.now(),
-          status: "complete",
-        },
-      ],
-    })
-
-    // Simulate history response with matching ID
+    // Resolve history first
+    const historyId = getLastHistoryRequestId()
     useChatStore.getState()._handleServerMessage({
       type: "response",
-      id: requestId,
-      data: {
-        messages: [
-          { role: "user", content: "from server", timestamp: "2024-01-01T00:00:00Z" },
-          { role: "assistant", content: "reply from server", timestamp: "2024-01-01T00:00:01Z" },
-        ],
-      },
+      id: historyId,
+      data: { messages: [] },
     })
 
-    const state = useChatStore.getState()
-    expect(state.isHistoryLoading).toBe(false)
-    // Full replacement: local message gone, only server messages remain
-    expect(state.messages).toHaveLength(2)
-    expect(state.messages[0].content).toBe("from server")
-    expect(state.messages[1].content).toBe("reply from server")
-    expect(state.isStreaming).toBe(false)
+    // Create a second thread
+    useChatStore.getState().createThread()
+    const secondId = useChatStore.getState().activeSessionId
+
+    const sent = useChatStore.getState().sendMessage("hello from thread 2")
+    expect(sent).toBe(true)
+
+    // Messages added to active (second) session
+    expect(getSession(secondId)!.messages).toHaveLength(2)
+    // Main session unchanged
+    expect(getSession("main")!.messages).toHaveLength(0)
+  })
+
+  it("registers requestToSession mapping", () => {
+    connectStore()
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: { messages: [] },
+    })
+
+    useChatStore.getState().sendMessage("hello")
+    const requestId = getLastSendRequestId()
+    expect(useChatStore.getState().requestToSession[requestId]).toBe("main")
+  })
+
+  it("derives title from first user message", () => {
+    connectStore()
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: { messages: [] },
+    })
+
+    useChatStore.getState().sendMessage("What is the weather today?")
+    expect(getSession("main")!.title).toBe("What is the weather today?")
+  })
+
+  it("truncates long titles to 30 chars", () => {
+    connectStore()
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: { messages: [] },
+    })
+
+    const longMessage = "A".repeat(50)
+    useChatStore.getState().sendMessage(longMessage)
+    expect(getSession("main")!.title).toBe("A".repeat(30) + "\u2026")
+  })
+
+  it("moves active session to front of sessionOrder", () => {
+    connectStore()
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: { messages: [] },
+    })
+
+    // Create a second thread (goes to front)
+    useChatStore.getState().createThread()
+    const secondId = useChatStore.getState().activeSessionId
+
+    // Switch back to main and send
+    useChatStore.getState().switchThread("main")
+    useChatStore.getState().sendMessage("hello")
+
+    expect(useChatStore.getState().sessionOrder[0]).toBe("main")
+    expect(useChatStore.getState().sessionOrder[1]).toBe(secondId)
   })
 })
 
-describe("chat store stream handling", () => {
-  beforeEach(() => {
-    resetStore()
-  })
+// --- Stream chunk routing ---
 
-  it("accumulates content from stream_chunk messages", () => {
+describe("stream_chunk event routing", () => {
+  beforeEach(resetStore)
+
+  it("accumulates content to correct session", () => {
     const requestId = "req-1"
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: requestId,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
         },
-      ],
-      isStreaming: true,
+      },
+      requestToSession: { [requestId]: "main" },
     })
 
-    const store = useChatStore.getState()
-
-    store._handleServerMessage({
+    useChatStore.getState()._handleServerMessage({
       type: "stream_chunk",
       id: requestId,
       data: { content: "Hello ", done: false },
     })
-    store._handleServerMessage({
+    useChatStore.getState()._handleServerMessage({
       type: "stream_chunk",
       id: requestId,
       data: { content: "world!", done: false },
     })
 
-    expect(useChatStore.getState().messages[0].content).toBe("Hello world!")
-    expect(useChatStore.getState().messages[0].status).toBe("streaming")
+    expect(getSession("main")!.messages[0].content).toBe("Hello world!")
+  })
 
-    store._handleServerMessage({
+  it("done cleans up requestToSession", () => {
+    const requestId = "req-1"
+    useChatStore.setState({
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: requestId,
+              role: "assistant",
+              content: "hi",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [requestId]: "main" },
+    })
+
+    useChatStore.getState()._handleServerMessage({
       type: "stream_chunk",
       id: requestId,
       data: { content: "", done: true },
     })
 
-    expect(useChatStore.getState().messages[0].status).toBe("complete")
-    expect(useChatStore.getState().isStreaming).toBe(false)
+    expect(useChatStore.getState().requestToSession[requestId]).toBeUndefined()
+    expect(getSession("main")!.isStreaming).toBe(false)
+    expect(getSession("main")!.messages[0].status).toBe("complete")
   })
 
-  it("adds tool calls to the correct message", () => {
-    const requestId = "req-1"
+  it("does NOT pollute other sessions", () => {
+    const reqA = "req-a"
+    const reqB = "req-b"
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
         },
-      ],
-      isStreaming: true,
-    })
-
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_call",
-      id: requestId,
-      data: {
-        tool_name: "read_file",
-        arguments: { path: "test.txt" },
-        call_id: "call-1",
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [
+            {
+              id: reqB,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
       },
+      requestToSession: { [reqA]: "main", [reqB]: "thread-2" },
     })
 
-    const msg = useChatStore.getState().messages[0]
-    expect(msg.toolCalls).toHaveLength(1)
-    expect(msg.toolCalls![0].toolName).toBe("read_file")
-    expect(msg.toolCalls![0].status).toBe("running")
+    // Chunk for thread-2 should NOT affect main
+    useChatStore.getState()._handleServerMessage({
+      type: "stream_chunk",
+      id: reqB,
+      data: { content: "for thread 2", done: false },
+    })
+
+    expect(getSession("main")!.messages[0].content).toBe("")
+    expect(getSession("thread-2")!.messages[0].content).toBe("for thread 2")
   })
 })
 
-describe("chat store tool_denied handling", () => {
-  beforeEach(() => {
-    resetStore()
+// --- Background completion ---
+
+describe("background completion signals", () => {
+  beforeEach(resetStore)
+
+  it("sets hasUnreadCompletion when non-active thread completes", () => {
+    const reqB = "req-b"
+    useChatStore.setState({
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: createSessionViewState("main"),
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [
+            {
+              id: reqB,
+              role: "assistant",
+              content: "answer",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqB]: "thread-2" },
+    })
+
+    useChatStore.getState()._handleServerMessage({
+      type: "stream_chunk",
+      id: reqB,
+      data: { content: "", done: true },
+    })
+
+    expect(getSession("thread-2")!.hasUnreadCompletion).toBe(true)
+    expect(getSession("thread-2")!.isStreaming).toBe(false)
   })
 
-  it("tool_denied message creates denied tool call", () => {
-    const requestId = "req-1"
+  it("does NOT set hasUnreadCompletion for active thread", () => {
+    const reqA = "req-a"
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      activeSessionId: "main",
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "answer",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
         },
-      ],
-      isStreaming: true,
-    })
-
-    // Precondition: tool_call arrives first
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_call",
-      id: requestId,
-      data: {
-        tool_name: "read_file",
-        arguments: { path: "test.txt" },
-        call_id: "call-denied-1",
       },
+      requestToSession: { [reqA]: "main" },
     })
 
-    // Then: tool_denied arrives
     useChatStore.getState()._handleServerMessage({
-      type: "tool_denied",
-      id: requestId,
-      data: {
-        call_id: "call-denied-1",
-        tool_name: "read_file",
-        mode: "chat_safe",
-        error_code: "MODE_DENIED",
-        message: "read_file is not allowed in chat_safe mode",
-        next_action: "coding mode required",
-      },
+      type: "stream_chunk",
+      id: reqA,
+      data: { content: "", done: true },
     })
 
-    const msg = useChatStore.getState().messages[0]
-    expect(msg.toolCalls).toHaveLength(1)
-    expect(msg.toolCalls![0].status).toBe("denied")
-    expect(msg.toolCalls![0].toolName).toBe("read_file")
-    expect(msg.toolCalls![0].callId).toBe("call-denied-1")
+    expect(getSession("main")!.hasUnreadCompletion).toBe(false)
   })
 
-  it("tool_denied does not stop streaming", () => {
-    const requestId = "req-1"
+  it("switchThread clears hasUnreadCompletion", () => {
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: createSessionViewState("main"),
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          hasUnreadCompletion: true,
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              content: "hi",
+              timestamp: Date.now(),
+              status: "complete",
+            },
+          ],
         },
-      ],
-      isStreaming: true,
-    })
-
-    // Precondition: tool_call arrives first
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_call",
-      id: requestId,
-      data: {
-        tool_name: "read_file",
-        arguments: { path: "test.txt" },
-        call_id: "call-denied-1",
       },
     })
 
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_denied",
-      id: requestId,
-      data: {
-        call_id: "call-denied-1",
-        tool_name: "read_file",
-        mode: "chat_safe",
-        error_code: "MODE_DENIED",
-        message: "read_file is not allowed in chat_safe mode",
-        next_action: "coding mode required",
+    useChatStore.getState().switchThread("thread-2")
+
+    expect(getSession("thread-2")!.hasUnreadCompletion).toBe(false)
+  })
+})
+
+// --- Error routing ---
+
+describe("error event routing", () => {
+  beforeEach(resetStore)
+
+  it("routes request error to correct session", () => {
+    const reqA = "req-a"
+    useChatStore.setState({
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
       },
+      requestToSession: { [reqA]: "main" },
     })
 
-    expect(useChatStore.getState().isStreaming).toBe(true)
+    useChatStore.getState()._handleServerMessage({
+      type: "error",
+      id: reqA,
+      error: { code: "LLM_ERROR", message: "model error" },
+    })
+
+    expect(getSession("main")!.isStreaming).toBe(false)
+    expect(getSession("main")!.messages[0].status).toBe("error")
+    expect(getSession("main")!.lastError).toBe("model error")
+    expect(useChatStore.getState().requestToSession[reqA]).toBeUndefined()
   })
 
-  it("tool_denied includes denied info", () => {
-    const requestId = "req-1"
+  it("routes history error to correct session", () => {
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          pendingHistoryId: "hist-1",
+          isHistoryLoading: true,
         },
-      ],
-      isStreaming: true,
-    })
-
-    // Precondition: tool_call arrives first
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_call",
-      id: requestId,
-      data: {
-        tool_name: "read_file",
-        arguments: { path: "test.txt" },
-        call_id: "call-denied-1",
       },
     })
 
     useChatStore.getState()._handleServerMessage({
-      type: "tool_denied",
-      id: requestId,
-      data: {
-        call_id: "call-denied-1",
-        tool_name: "read_file",
-        mode: "chat_safe",
-        error_code: "MODE_DENIED",
-        message: "read_file is not allowed in chat_safe mode",
-        next_action: "coding mode required",
-      },
+      type: "error",
+      id: "hist-1",
+      error: { code: "INTERNAL_ERROR", message: "db error" },
     })
 
-    const tc = useChatStore.getState().messages[0].toolCalls![0]
-    expect(tc.deniedInfo).toEqual({
-      mode: "chat_safe",
-      errorCode: "MODE_DENIED",
-      message: "read_file is not allowed in chat_safe mode",
-      nextAction: "coding mode required",
-    })
+    expect(getSession("main")!.isHistoryLoading).toBe(false)
+    expect(getSession("main")!.pendingHistoryId).toBeNull()
   })
+})
 
-  it("tool_denied updates existing tool_call instead of appending", () => {
-    const requestId = "req-1"
+// --- Tool call routing ---
+
+describe("tool_call / tool_denied routing", () => {
+  beforeEach(resetStore)
+
+  it("adds tool calls to correct session", () => {
+    const reqA = "req-a"
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
         },
-      ],
-      isStreaming: true,
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [],
+        },
+      },
+      requestToSession: { [reqA]: "main" },
     })
 
-    // First: tool_call arrives, creates a running entry
     useChatStore.getState()._handleServerMessage({
       type: "tool_call",
-      id: requestId,
+      id: reqA,
       data: {
         tool_name: "read_file",
         arguments: { path: "test.txt" },
@@ -467,109 +628,495 @@ describe("chat store tool_denied handling", () => {
       },
     })
 
-    // Then: tool_denied arrives for the same call_id
+    expect(getSession("main")!.messages[0].toolCalls).toHaveLength(1)
+    expect(getSession("main")!.messages[0].toolCalls![0].toolName).toBe(
+      "read_file",
+    )
+    // thread-2 unaffected
+    expect(getSession("thread-2")!.messages).toHaveLength(0)
+  })
+
+  it("tool_denied updates existing tool_call in correct session", () => {
+    const reqA = "req-a"
+    useChatStore.setState({
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+              toolCalls: [
+                {
+                  callId: "call-1",
+                  toolName: "read_file",
+                  arguments: { path: "test.txt" },
+                  status: "running",
+                },
+              ],
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqA]: "main" },
+    })
+
     useChatStore.getState()._handleServerMessage({
       type: "tool_denied",
-      id: requestId,
+      id: reqA,
       data: {
         call_id: "call-1",
         tool_name: "read_file",
         mode: "chat_safe",
         error_code: "MODE_DENIED",
-        message: "read_file is not allowed in chat_safe mode",
-        next_action: "coding mode required",
+        message: "denied",
+        next_action: "n/a",
       },
     })
 
-    const msg = useChatStore.getState().messages[0]
-    // Must be 1 entry, not 2
-    expect(msg.toolCalls).toHaveLength(1)
-    expect(msg.toolCalls![0].callId).toBe("call-1")
-    expect(msg.toolCalls![0].status).toBe("denied")
-    expect(msg.toolCalls![0].deniedInfo).toBeDefined()
-  })
-
-  it("tool_denied without preceding tool_call inserts denied placeholder", () => {
-    const requestId = "req-1"
-    useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
-        },
-      ],
-      isStreaming: true,
-    })
-
-    // tool_denied arrives WITHOUT a preceding tool_call
-    useChatStore.getState()._handleServerMessage({
-      type: "tool_denied",
-      id: requestId,
-      data: {
-        call_id: "call-orphan",
-        tool_name: "read_file",
-        mode: "chat_safe",
-        error_code: "MODE_DENIED",
-        message: "read_file is not allowed in chat_safe mode",
-        next_action: "coding mode required",
-      },
-    })
-
-    const msg = useChatStore.getState().messages[0]
-    // Fallback: insert denied placeholder so denial is never silently lost
-    expect(msg.toolCalls).toHaveLength(1)
-    expect(msg.toolCalls![0].callId).toBe("call-orphan")
-    expect(msg.toolCalls![0].status).toBe("denied")
-    expect(msg.toolCalls![0].deniedInfo).toBeDefined()
+    const tc = getSession("main")!.messages[0].toolCalls![0]
+    expect(tc.status).toBe("denied")
+    expect(tc.deniedInfo).toBeDefined()
   })
 
   it("done handler preserves denied status", () => {
     const requestId = "req-1"
     useChatStore.setState({
-      messages: [
-        {
-          id: requestId,
-          role: "assistant",
-          content: "",
-          timestamp: Date.now(),
-          status: "streaming",
-          toolCalls: [
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
             {
-              callId: "call-ok",
-              toolName: "current_time",
-              arguments: {},
-              status: "running",
-            },
-            {
-              callId: "call-denied",
-              toolName: "read_file",
-              arguments: {},
-              status: "denied",
-              deniedInfo: {
-                mode: "chat_safe",
-                errorCode: "MODE_DENIED",
-                message: "denied",
-                nextAction: "n/a",
-              },
+              id: requestId,
+              role: "assistant",
+              content: "",
+              timestamp: Date.now(),
+              status: "streaming",
+              toolCalls: [
+                {
+                  callId: "call-ok",
+                  toolName: "current_time",
+                  arguments: {},
+                  status: "running",
+                },
+                {
+                  callId: "call-denied",
+                  toolName: "read_file",
+                  arguments: {},
+                  status: "denied",
+                  deniedInfo: {
+                    mode: "chat_safe",
+                    errorCode: "MODE_DENIED",
+                    message: "denied",
+                    nextAction: "n/a",
+                  },
+                },
+              ],
             },
           ],
+          isStreaming: true,
         },
-      ],
-      isStreaming: true,
+      },
+      requestToSession: { [requestId]: "main" },
     })
 
-    // done arrives
     useChatStore.getState()._handleServerMessage({
       type: "stream_chunk",
       id: requestId,
       data: { content: "", done: true },
     })
 
-    const tcs = useChatStore.getState().messages[0].toolCalls!
-    expect(tcs[0].status).toBe("complete") // running → complete
-    expect(tcs[1].status).toBe("denied")   // denied stays denied
+    const tcs = getSession("main")!.messages[0].toolCalls!
+    expect(tcs[0].status).toBe("complete")
+    expect(tcs[1].status).toBe("denied")
+  })
+})
+
+// --- History response routing ---
+
+describe("history response routing", () => {
+  beforeEach(resetStore)
+
+  it("full replacement on history response", () => {
+    connectStore()
+    const requestId = getLastHistoryRequestId()
+
+    // Pre-populate
+    useChatStore.setState({
+      sessionsById: {
+        ...useChatStore.getState().sessionsById,
+        main: {
+          ...getSession("main")!,
+          messages: [
+            {
+              id: "local-1",
+              role: "user",
+              content: "local msg",
+              timestamp: Date.now(),
+              status: "complete",
+            },
+          ],
+        },
+      },
+    })
+
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: requestId,
+      data: {
+        messages: [
+          {
+            role: "user",
+            content: "from server",
+            timestamp: "2024-01-01T00:00:00Z",
+          },
+          {
+            role: "assistant",
+            content: "reply",
+            timestamp: "2024-01-01T00:00:01Z",
+          },
+        ],
+      },
+    })
+
+    const main = getSession("main")!
+    expect(main.isHistoryLoading).toBe(false)
+    expect(main.messages).toHaveLength(2)
+    expect(main.messages[0].content).toBe("from server")
+    expect(main.messages[1].content).toBe("reply")
+  })
+
+  it("routes history to correct session among multiple", () => {
+    const histA = "hist-a"
+    const histB = "hist-b"
+    useChatStore.setState({
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          pendingHistoryId: histA,
+          isHistoryLoading: true,
+        },
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          pendingHistoryId: histB,
+          isHistoryLoading: true,
+        },
+      },
+    })
+
+    // Response for thread-2
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: histB,
+      data: {
+        messages: [
+          { role: "user", content: "thread 2 msg", timestamp: "2024-01-01T00:00:00Z" },
+        ],
+      },
+    })
+
+    expect(getSession("thread-2")!.isHistoryLoading).toBe(false)
+    expect(getSession("thread-2")!.messages).toHaveLength(1)
+    // main still loading
+    expect(getSession("main")!.isHistoryLoading).toBe(true)
+    expect(getSession("main")!.pendingHistoryId).toBe(histA)
+  })
+
+  it("derives title from history", () => {
+    useChatStore.setState({
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          pendingHistoryId: "h1",
+          isHistoryLoading: true,
+        },
+      },
+    })
+
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: "h1",
+      data: {
+        messages: [
+          { role: "user", content: "Help me with Python", timestamp: "2024-01-01T00:00:00Z" },
+          { role: "assistant", content: "Sure!", timestamp: "2024-01-01T00:00:01Z" },
+        ],
+      },
+    })
+
+    expect(getSession("main")!.title).toBe("Help me with Python")
+  })
+})
+
+// --- Thread management ---
+
+describe("thread management", () => {
+  beforeEach(resetStore)
+
+  it("createThread generates web:{uuid} session", () => {
+    useChatStore.getState().createThread()
+    const state = useChatStore.getState()
+    expect(state.activeSessionId).toMatch(/^web:/)
+    expect(state.sessionOrder).toHaveLength(2)
+    expect(state.sessionOrder[0]).toBe(state.activeSessionId)
+    expect(state.sessionOrder[1]).toBe("main")
+  })
+
+  it("switchThread changes activeSessionId", () => {
+    useChatStore.getState().createThread()
+    const newId = useChatStore.getState().activeSessionId
+    useChatStore.getState().switchThread("main")
+    expect(useChatStore.getState().activeSessionId).toBe("main")
+    // Switch back
+    useChatStore.getState().switchThread(newId)
+    expect(useChatStore.getState().activeSessionId).toBe(newId)
+  })
+
+  it("switchThread lazy-loads history for empty sessions", () => {
+    connectStore()
+    // Resolve main history
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: { messages: [] },
+    })
+
+    // Create and switch away from new thread
+    useChatStore.getState().createThread()
+    const newId = useChatStore.getState().activeSessionId
+    useChatStore.getState().switchThread("main")
+
+    // Now switch to new thread — should trigger loadHistory
+    const sendCountBefore = mockSend.mock.calls.length
+    useChatStore.getState().switchThread(newId)
+    const sendCountAfter = mockSend.mock.calls.length
+
+    expect(sendCountAfter).toBe(sendCountBefore + 1)
+    const lastReq = mockSend.mock.calls[mockSend.mock.calls.length - 1][0] as RPCRequest
+    expect(lastReq.method).toBe("chat.history")
+    expect(lastReq.params.session_id).toBe(newId)
+  })
+
+  it("switchThread does not re-load if messages exist", () => {
+    useChatStore.setState({
+      activeSessionId: "main",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: createSessionViewState("main"),
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              content: "existing",
+              timestamp: Date.now(),
+              status: "complete",
+            },
+          ],
+        },
+      },
+    })
+
+    mockIsConnected = true
+    const sendCountBefore = mockSend.mock.calls.length
+    useChatStore.getState().switchThread("thread-2")
+    expect(mockSend.mock.calls.length).toBe(sendCountBefore)
+  })
+})
+
+// --- localStorage persistence ---
+
+describe("localStorage persistence", () => {
+  beforeEach(resetStore)
+
+  it("persists after createThread", () => {
+    useChatStore.getState().createThread()
+    const raw = localStorage.getItem("neomagi-threads")
+    expect(raw).not.toBeNull()
+    const data = JSON.parse(raw!)
+    expect(data.sessionOrder).toHaveLength(2)
+  })
+
+  it("persists after switchThread", () => {
+    useChatStore.getState().createThread()
+    const newId = useChatStore.getState().activeSessionId
+    useChatStore.getState().switchThread("main")
+    const data = JSON.parse(localStorage.getItem("neomagi-threads")!)
+    expect(data.activeSessionId).toBe("main")
+    // Switch back
+    useChatStore.getState().switchThread(newId)
+    const data2 = JSON.parse(localStorage.getItem("neomagi-threads")!)
+    expect(data2.activeSessionId).toBe(newId)
+  })
+
+  it("persists titles", () => {
+    connectStore()
+    const historyId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: historyId,
+      data: {
+        messages: [
+          { role: "user", content: "Explain async/await", timestamp: "2024-01-01T00:00:00Z" },
+        ],
+      },
+    })
+
+    const data = JSON.parse(localStorage.getItem("neomagi-threads")!)
+    expect(data.titles.main).toBe("Explain async/await")
+  })
+})
+
+// --- Refresh recovery ---
+
+describe("refresh recovery", () => {
+  beforeEach(resetStore)
+
+  it("restores thread list from localStorage but not messages", () => {
+    localStorage.setItem(
+      "neomagi-threads",
+      JSON.stringify({
+        activeSessionId: "web:abc",
+        sessionOrder: ["web:abc", "main"],
+        titles: { "web:abc": "My Thread", main: "Main" },
+      }),
+    )
+
+    // Re-bootstrap by setting state as bootstrapSessions would
+    // (In real app, this happens on module load)
+    const persisted = JSON.parse(localStorage.getItem("neomagi-threads")!)
+    const sessionsById: Record<string, ReturnType<typeof createSessionViewState>> = {}
+    for (const id of persisted.sessionOrder) {
+      sessionsById[id] = createSessionViewState(id, persisted.titles[id])
+    }
+    useChatStore.setState({
+      activeSessionId: persisted.activeSessionId,
+      sessionOrder: persisted.sessionOrder,
+      sessionsById,
+    })
+
+    const state = useChatStore.getState()
+    expect(state.activeSessionId).toBe("web:abc")
+    expect(state.sessionOrder).toEqual(["web:abc", "main"])
+    expect(getSession("web:abc")!.title).toBe("My Thread")
+    // Messages are empty (not persisted)
+    expect(getSession("web:abc")!.messages).toHaveLength(0)
+    // Streaming state is not restored
+    expect(getSession("web:abc")!.isStreaming).toBe(false)
+  })
+})
+
+// --- Cross-thread isolation ---
+
+describe("cross-thread isolation", () => {
+  beforeEach(resetStore)
+
+  it("streaming in thread-A does not block sending in thread-B", () => {
+    connectStore()
+    const mainHistoryId = getLastHistoryRequestId()
+    useChatStore.getState()._handleServerMessage({
+      type: "response",
+      id: mainHistoryId,
+      data: { messages: [] },
+    })
+
+    // Send in main → starts streaming
+    useChatStore.getState().sendMessage("hello from main")
+    expect(getSession("main")!.isStreaming).toBe(true)
+
+    // Create new thread and switch to it
+    useChatStore.getState().createThread()
+    const threadB = useChatStore.getState().activeSessionId
+
+    // Should be able to send in thread-B even though main is streaming
+    const sent = useChatStore.getState().sendMessage("hello from B")
+    expect(sent).toBe(true)
+    expect(getSession(threadB)!.messages).toHaveLength(2)
+    expect(getSession(threadB)!.isStreaming).toBe(true)
+
+    // main still streaming independently
+    expect(getSession("main")!.isStreaming).toBe(true)
+  })
+
+  it("completing thread-A does not affect thread-B streaming state", () => {
+    const reqA = "req-a"
+    const reqB = "req-b"
+    useChatStore.setState({
+      activeSessionId: "thread-2",
+      sessionOrder: ["main", "thread-2"],
+      sessionsById: {
+        main: {
+          ...createSessionViewState("main"),
+          messages: [
+            {
+              id: reqA,
+              role: "assistant",
+              content: "resp A",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+        "thread-2": {
+          ...createSessionViewState("thread-2"),
+          messages: [
+            {
+              id: reqB,
+              role: "assistant",
+              content: "resp B",
+              timestamp: Date.now(),
+              status: "streaming",
+            },
+          ],
+          isStreaming: true,
+        },
+      },
+      requestToSession: { [reqA]: "main", [reqB]: "thread-2" },
+    })
+
+    // Complete main
+    useChatStore.getState()._handleServerMessage({
+      type: "stream_chunk",
+      id: reqA,
+      data: { content: "", done: true },
+    })
+
+    // thread-2 still streaming
+    expect(getSession("thread-2")!.isStreaming).toBe(true)
+    expect(getSession("main")!.isStreaming).toBe(false)
+  })
+})
+
+// --- Connection status ---
+
+describe("connection status toasts", () => {
+  beforeEach(resetStore)
+
+  it("toast on connection lost", async () => {
+    const { toast } = await import("sonner")
+    useChatStore.setState({ connectionStatus: "connected" })
+    useChatStore.getState()._setConnectionStatus("reconnecting")
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Connection lost, reconnecting...",
+    )
+  })
+
+  it("toast on disconnect after reconnecting", async () => {
+    const { toast } = await import("sonner")
+    useChatStore.setState({ connectionStatus: "reconnecting" })
+    useChatStore.getState()._setConnectionStatus("disconnected")
+    expect(toast.error).toHaveBeenCalledWith(
+      "Failed to reconnect. Please refresh the page.",
+      { duration: Infinity },
+    )
   })
 })

@@ -9,9 +9,14 @@ export function MessageInput() {
   const [input, setInput] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const sendMessage = useChatStore((state) => state.sendMessage)
-  const isStreaming = useChatStore((state) => state.isStreaming)
   const connectionStatus = useChatStore((state) => state.connectionStatus)
-  const isHistoryLoading = useChatStore((state) => state.isHistoryLoading)
+  const isStreaming = useChatStore(
+    (state) => state.sessionsById[state.activeSessionId]?.isStreaming ?? false,
+  )
+  const isHistoryLoading = useChatStore(
+    (state) =>
+      state.sessionsById[state.activeSessionId]?.isHistoryLoading ?? false,
+  )
 
   const isDisabled = isStreaming || connectionStatus !== "connected" || isHistoryLoading
   const canSend = !isDisabled && input.trim().length > 0
@@ -41,7 +46,7 @@ export function MessageInput() {
         handleSend()
       }
     },
-    [handleSend]
+    [handleSend],
   )
 
   // Auto-resize on input change
