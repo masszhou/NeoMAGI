@@ -684,16 +684,38 @@ export const useChatStore = create<ChatState>()(
                   }
                 }
 
-                // Reset isStreaming for sessions with in-flight requests
-                for (const sessionId of Object.values(
+                // Collect in-flight request IDs per session
+                const inflightBySession = new Map<string, Set<string>>()
+                for (const [reqId, sessionId] of Object.entries(
                   prev.requestToSession,
                 )) {
+                  if (!inflightBySession.has(sessionId)) {
+                    inflightBySession.set(sessionId, new Set())
+                  }
+                  inflightBySession.get(sessionId)!.add(reqId)
+                }
+
+                // Reset isStreaming + mark messages/tools as terminal
+                for (const [sessionId, reqIds] of inflightBySession) {
                   const session = updatedSessions[sessionId]
-                  if (session?.isStreaming) {
-                    updatedSessions[sessionId] = {
-                      ...session,
-                      isStreaming: false,
-                    }
+                  if (!session) continue
+                  updatedSessions[sessionId] = {
+                    ...session,
+                    isStreaming: false,
+                    messages: session.messages.map((m) =>
+                      reqIds.has(m.id) && m.status === "streaming"
+                        ? {
+                            ...m,
+                            status: "error" as const,
+                            error: "Connection lost",
+                            toolCalls: m.toolCalls?.map((tc) =>
+                              tc.status === "running"
+                                ? { ...tc, status: "complete" as const }
+                                : tc,
+                            ),
+                          }
+                        : m,
+                    ),
                   }
                 }
 

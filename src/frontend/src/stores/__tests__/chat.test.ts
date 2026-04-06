@@ -1124,7 +1124,7 @@ describe("connection status toasts", () => {
 describe("connection loss recovers in-flight requests", () => {
   beforeEach(resetStore)
 
-  it("disconnect clears requestToSession and resets isStreaming", () => {
+  it("disconnect marks in-flight messages as error and tools as complete", () => {
     const reqA = "req-a"
     useChatStore.setState({
       connectionStatus: "connected",
@@ -1139,6 +1139,14 @@ describe("connection loss recovers in-flight requests", () => {
               content: "partial",
               timestamp: Date.now(),
               status: "streaming",
+              toolCalls: [
+                {
+                  callId: "tc-1",
+                  toolName: "read_file",
+                  arguments: {},
+                  status: "running",
+                },
+              ],
             },
           ],
           isStreaming: true,
@@ -1149,8 +1157,14 @@ describe("connection loss recovers in-flight requests", () => {
 
     useChatStore.getState()._setConnectionStatus("disconnected")
 
-    expect(getSession("main")!.isStreaming).toBe(false)
+    const main = getSession("main")!
+    expect(main.isStreaming).toBe(false)
     expect(useChatStore.getState().requestToSession).toEqual({})
+    // Message transitioned to terminal error state
+    expect(main.messages[0].status).toBe("error")
+    expect(main.messages[0].error).toBe("Connection lost")
+    // Tool call transitioned to complete
+    expect(main.messages[0].toolCalls![0].status).toBe("complete")
   })
 
   it("reconnecting clears requestToSession and resets isStreaming", () => {
@@ -1197,6 +1211,9 @@ describe("connection loss recovers in-flight requests", () => {
     expect(getSession("main")!.isStreaming).toBe(false)
     expect(getSession("thread-2")!.isStreaming).toBe(false)
     expect(useChatStore.getState().requestToSession).toEqual({})
+    // Both messages in terminal state
+    expect(getSession("main")!.messages[0].status).toBe("error")
+    expect(getSession("thread-2")!.messages[0].status).toBe("error")
   })
 
   it("recovered thread can send again after reconnect", () => {
