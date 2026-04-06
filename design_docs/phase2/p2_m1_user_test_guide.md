@@ -11,12 +11,12 @@
 完成依据：
 - `P2-M1a` 已完成并通过验收：`dev_docs/logs/phase2/p2-m1a_2026-03-06/pm.md`
 - `P2-M1b` 已完成并关闭：`dev_docs/progress/project_progress.md` 中 `2026-03-18 | P2-M1b closeout`
-- `P2-M1c` 已完成并关闭，且明确写明 “`P2-M1` 全部关闭”：`dev_docs/progress/project_progress.md` 中 `2026-03-20 | P2-M1c closeout`
+- `P2-M1c` 已完成并关闭，且明确写明 "`P2-M1` 全部关闭"：`dev_docs/progress/project_progress.md` 中 `2026-03-20 | P2-M1c closeout`
 - `P2-M1c` PM 总结确认 milestone 已关闭：`dev_docs/logs/phase2/p2-m1c_2026-03-18/pm.md`
 
 说明：
 - `design_docs/phase2/*.md` 当前仍标记为 `planned`，这是 architecture 文档状态口径，不代表实现未完成。
-- 当前普通会话仍固定为 `chat_safe`；本指导不会把“WebChat 已开放 coding 模式”当作 `P2-M1` 验收前提。
+- 当前普通会话仍固定为 `chat_safe`；本指导不会把 "WebChat 已开放 coding 模式" 当作 `P2-M1` 验收前提。
 
 ## 1. 适用范围
 
@@ -128,6 +128,13 @@ uv run alembic upgrade head
 just init-workspace
 ```
 
+`just init-workspace` 不会自动创建 `SOUL.md`。  
+要完成 `P2-M1` 的 `soul_status / soul_propose / soul_rollback` 验收，还需要显式初始化一次 SOUL：
+
+```bash
+just init-soul
+```
+
 ### 3.5 准备 bd（builder work memory 索引层）
 
 如果本机还没初始化 beads：
@@ -161,7 +168,7 @@ just dev-frontend
 
 说明：
 - 示例输入是建议文案，不要求逐字一致。
-- 预期关注”闭环是否发生”，不要求模型回答一字不差。
+- 预期关注"闭环是否发生"，不要求模型回答一字不差。
 - 当前会话固定为 `chat_safe`，这是预期行为，不是失败。
 
 ### 用例依赖关系
@@ -192,6 +199,38 @@ T06 (独立)
   - 若带 history，应看到最近版本链。
   - 工具调用成功，不报 `NOT_CONFIGURED`。
 
+### SOUL vs USER 边界说明
+
+本指导中的 `T03 / T03b / T04` 只验证 `SOUL` 的治理闭环，也就是“agent 的内在身份 / 原则 / 哲学”是否能被 propose、apply 和 rollback。
+
+这里**不测试** `USER.md` 语义。像下面这些内容按当前设计属于用户偏好，而不是 `SOUL`：
+- `我希望你默认短回答`
+- `我希望你中文优先`
+- `我希望你先给命令再解释`
+
+因此，下面的 `soul_propose` 示例应始终围绕“agent 应以什么原则代表用户”来写，而不是围绕“当前这个用户喜欢怎样的回答样式”来写。
+
+### 推荐参考片段（来自个人 SOUL reference 模板）
+
+如果你想用 [`SOUL.zhiliang-personal.reference.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/prompts/personal/SOUL.zhiliang-personal.reference.md) 里的内容帮助自己理解 `SOUL`，下面这些片段最适合拿来做手测：
+
+- `Be genuinely helpful, not performatively helpful.`
+  - 适合原因：它描述 agent 的内在工作姿态，不依赖具体用户偏好，也不等于“短回答”或“先给命令”这类个人定制。
+- `Be resourceful before asking.`
+  - 适合原因：它定义 agent 面对不确定性时的原则，属于稳定的行为哲学，而不是某次任务的临时策略。
+- `Have a perspective.`
+  - 适合原因：它描述 agent 是否允许给出真实判断，属于内在身份，不是展示层文案，也不是用户偏好。
+- `When the three lenses point in different directions, name the tension.`
+  - 适合原因：它规定 agent 如何处理冲突视角，明显属于原则层，而不是格式偏好。
+- `Prefer reversible actions over irreversible ones.`
+  - 适合原因：它定义行动取向与风险偏好，适合作为第二个可回滚版本的增量原则。
+
+不建议直接拿来做本轮最小手测的片段：
+- `The Mother` / `The Historian` 的长段落
+  - 原因：语义太大，难以在一次小提案里稳定验证 diff 和 rollback。
+- `Anything that moves humanity toward extinction is evil.`
+  - 原因：世界观强度太高，适合作为长期模板讨论，不适合作为最小闭环验收样例。
+
 ### T03 `soul_propose` 提案并生效（确定性 CLI 路径，推荐）
 
 验收目标是验证 propose → evaluate → apply 闭环存在，不是验证 LLM prompt engineering 的稳定性。
@@ -213,23 +252,27 @@ async def main():
     session_factory = make_session_factory(engine)
     evo = EvolutionEngine(session_factory, settings.workspace_dir, settings.memory)
 
-    soul_path = Path(settings.workspace_dir) / “SOUL.md”
-    current = soul_path.read_text(encoding=”utf-8”).strip()
-    new_content = current + “\n\n## Runtime Test Rule\n- 回答时先给一句结论，再给最多 3 条要点。\n”
+    soul_path = Path(settings.workspace_dir) / "SOUL.md"
+    current = soul_path.read_text(encoding="utf-8").strip()
+    new_content = current + (
+        "\n\n## Runtime Test Principle\n"
+        "- Be genuinely helpful, not performatively helpful.\n"
+        "- Be resourceful before asking.\n"
+    )
 
     version = await evo.propose(
         SoulProposal(
-            intent=”P2-M1 user test deterministic propose”,
-            risk_notes=”manual test”,
-            diff_summary=”append one explicit runtime rule”,
+            intent="P2-M1 user test deterministic propose",
+            risk_notes="manual test",
+            diff_summary="append one explicit SOUL principle",
             new_content=new_content,
         )
     )
     result = await evo.evaluate(version)
-    print({“version”: version, “passed”: result.passed, “summary”: result.summary})
+    print({"version": version, "passed": result.passed, "summary": result.summary})
     if result.passed:
         await evo.apply(version)
-        print({“applied”: version})
+        print({"applied": version})
 
     await engine.dispose()
 
@@ -248,23 +291,23 @@ PY
 注意：此路径因 `diff_sanity` 检查对 LLM 构造内容的稳定性要求较高，**失败不应判为功能缺陷**。
 
 - 示例输入：
-  - `请先调用 soul_status 了解当前版本，再调用 soul_propose。把你的默认回答方式调整为更适合我长期使用的风格：默认先给结论，再给不超过 3 条要点；信息不确定时先明确不确定，不要装作确定；涉及需要我执行的步骤时，优先给可直接复制的命令或操作步骤。`
+  - `请先调用 soul_status 了解当前版本，再调用 soul_propose。参考我的 SOUL 模板，把你的内在工作原则调整为：Be genuinely helpful, not performatively helpful；Be resourceful before asking。也就是不要表演式热情，在向我追问前优先先查证当前上下文和已有材料。`
 - 预期：
   - 返回 `applied` 或 `rejected`。
   - 若 `applied`，应给出新的 version。
   - fresh workspace 下，首次成功 apply 很可能直接生成当前唯一的 active 版本（例如 `v1`）；这是正常现象。
   - 再调用一次 `soul_status`，应能看到 active 版本与最近历史。
-  - 若返回 `rejected` 且原因是 `diff_sanity` / “差异检查失败”，通常表示模型虽然调用了 `soul_propose`，但构造出的 `new_content` 与当前 active SOUL 实际相同；改用更明确的新内容再试。
+  - 若返回 `rejected` 且原因是 `diff_sanity` / "差异检查失败"，通常表示模型虽然调用了 `soul_propose`，但构造出的 `new_content` 与当前 active SOUL 实际相同；改用更明确的新内容再试。
 
 说明：
 - `EvolutionEngine.evaluate()` 的第三个检查是 `diff_sanity`，要求 `new_content` 与当前 active version 不完全相同。
-- WebChat 当前没有”手填 tool arguments 表单”，因此仅靠自然语言让模型构造一份”完整且明确不同”的 `new_content`，稳定性不高。
+- WebChat 当前没有"手填 tool arguments 表单"，因此仅靠自然语言让模型构造一份"完整且明确不同"的 `new_content`，稳定性不高。
 
 ### T03b 生成第二个可回滚版本
 
 - 前置：T03 已成功 `applied` 至少一个版本。
 - 示例输入：
-  - `请再次调用 soul_propose，在保留上一条偏好的前提下，再增加一个新的长期偏好：当我是在排查报错或配置问题时，先给一句最可能原因，再给最短修复路径，最后给验证命令。`
+  - `请再次调用 soul_propose，在保留上一条原则的前提下，再增加一个新的 SOUL 原则，参考模板中的这两类表达任选其一：Have a perspective；Prefer reversible actions over irreversible ones。比如：当你判断多个方案优劣时，优先给出你的真实判断；涉及高风险选择时，优先建议可回退、可验证的路径。`
 - 预期：
   - 返回 `applied` 或 `rejected`。
   - 若 `applied`，此时版本链中应至少已有 2 个版本，后续才具备稳定的 rollback 前提。
@@ -274,12 +317,12 @@ PY
 
 - 前置：T03/T03b 已产生至少 2 个版本，存在可回滚前序版本。
 - 示例输入：
-  - `请调用 soul_rollback，执行 rollback，并告诉我是否已经撤销刚才新增的“排查问题时先给原因、再给最短修复路径、最后给验证命令”这一条偏好。`
+  - `请调用 soul_rollback，执行 rollback，并告诉我是否已经撤销刚才新增的那条 SOUL 原则，例如 "Have a perspective" 或 "Prefer reversible actions over irreversible ones" 的对应中文表达。`
 - 预期：
   - 理想结果是返回 `rolled_back`。
-  - 若返回“没有可回滚的前序版本”之类提示，说明前置条件未满足，不应判为功能失败，应先补跑 T03b。
+  - 若返回"没有可回滚的前序版本"之类提示，说明前置条件未满足，不应判为功能失败，应先补跑 T03b。
   - 再次调用 `soul_status`，可看到版本链变化。
-  - 如检查 `workspace/SOUL.md`，应能看到 T03 引入的长期回答风格仍在，但 T03b 新增的“排查问题回答模板”已被撤销。
+  - 如检查 `workspace/SOUL.md`，应能看到 T03 引入的 `Be genuinely helpful, not performatively helpful.` / `Be resourceful before asking.` 仍在，但 T03b 新增的那条增量原则已被撤销。
 
 ### T05 教学意图触发 `skill_spec` proposal
 
@@ -319,7 +362,7 @@ just check-governance-tables
 
 ## 6. B 层：受控回放测试用例
 
-这一层用于验证 `P2-M1` 的关键闭环已经真实存在，而不是只在对话里”声称支持”。
+这一层用于验证 `P2-M1` 的关键闭环已经真实存在，而不是只在对话里"声称支持"。
 
 ### 前置条件速查
 
@@ -462,7 +505,7 @@ bd ready --json
 - B 层回放用例 `T07`~`T11` 全部通过
 - `workspace/artifacts/` 中能看到 builder 与 growth case 产物
 - `skill_spec` 与 `wrapper_tool` 治理表中存在对应记录
-- 没有出现“需要关闭安全边界才能完成 `P2-M1` 验收”的情况
+- 没有出现"需要关闭安全边界才能完成 `P2-M1` 验收"的情况
 
 ## 9. 常见问题与处理
 

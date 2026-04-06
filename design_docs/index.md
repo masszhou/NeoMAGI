@@ -79,7 +79,21 @@
 - 计划执行细节：当前阶段优先看 `dev_docs/plans/phase2/`；Phase 1 归档计划看 `dev_docs/plans/phase1/`
 - 关键技术取舍：`decisions/`（含 `decisions/INDEX.md`）
 
-## 6. 外部参考（按需）
+## 6. 数据模型入口（按需）
+
+- `design_docs/data_models/postgresql/index.md`
+  - 应用 PostgreSQL 表的数据模型总索引；按功能分组到逐表说明文件。
+- 适用场景：
+  - 读库结构、手写 SQL、看验收数据面
+  - 做 migration / schema patch
+  - 判断 current-state 表与 governance ledger 表的边界
+  - 追踪某张表和设计文档/实现代码之间的双向链接
+
+说明：
+- 该入口默认不是“最小上下文”必读文档；只有在数据库、持久化、治理账本、检索投影相关任务里再加载。
+- 逐表文档会同时链接回总索引以及相关代码 / migration 来源，方便后续 schema 变更时同步维护。
+
+## 7. 外部参考（按需）
 
 - `OpenClaw`: [https://github.com/openclaw/openclaw](https://github.com/openclaw/openclaw)
   - 主要架构参考方向：`src/agents/`、`src/memory/`、`src/gateway/`

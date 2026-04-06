@@ -10,6 +10,16 @@
 - 同一概念尽量只保留一个主词；历史别名只作为 `Aliases` 保留。
 - 本文件解释“概念是什么”，不替代具体实现文档、计划或测试用例。
 
+## 阅读导航
+
+- `Identity & Prompt Context`：`SOUL`、`SOUL.md`、`USER.md`、`IDENTITY.md`、`Principal`
+- `Governance & Evaluation`：growth object、proposal、contract、checks、veto、evidence
+- `Capability Layer`：tool、skill、wrapper、procedure、memory application
+- `Builder & Workspace Artifacts`：builder task、growth case、artifact identity
+- `Implementation Artifacts`：code diff、implementation artifact
+
+## Identity & Prompt Context
+
 ### SOUL
 - **Category**：Identity / Governance Object
 - **Aliases**：`soul`
@@ -23,9 +33,41 @@
 ### SOUL.md
 - **Category**：Workspace Projection
 - **Aliases**：`workspace/SOUL.md`
-- **Definition**：当前 active `SOUL` 的运行时投影文件，不是最终真源。项目语义上以 DB 中 active soul version 为准，`SOUL.md` 负责工作区可见性和 prompt 注入。
+- **Definition**：当前 active `SOUL` 的运行时投影文件，不是最终真源。项目语义上以 DB 中 active soul version 为准，`SOUL.md` 负责工作区可见性和 prompt 注入。它回答“agent 是谁、按什么原则代表用户、采用什么内在人格/语气”，而不是“用户偏好是什么”或“外部展示名片是什么”。
+- **Notes**：
+  - post-bootstrap 常态下，`SOUL.md` 的变更必须走 `propose -> evaluate -> apply -> rollback` 治理路径；人类保留 veto/rollback 权限，但不直接改常态文本。
+  - 在 workspace context 语义上，`SOUL.md` 的约束优先级低于 [USER.md](#usermd)，高于 [IDENTITY.md](#identitymd)。
 - **Relations**：
   - `projection-of` → [SOUL](#soul)
+  - `lower-priority-than` → [USER.md](#usermd)
+  - `higher-priority-than` → [IDENTITY.md](#identitymd)
+
+### USER.md
+- **Category**：Workspace Context / User Preference
+- **Aliases**：`workspace/USER.md`
+- **Definition**：当前 workspace 中描述“这个 agent 正在为谁服务，以及应该如何个性化适配”的文件。它承载用户侧信息，如语言、时区、沟通风格、技术栈、长期偏好和不希望被违背的回答习惯，回答“服务对象是谁、应该怎样配合这个用户”，而不是“agent 自己是谁”或“agent 对外叫什么名字”。
+- **Notes**：
+  - 当前设计中，`USER.md` 是每 turn 直接注入的 workspace context 文件，不是 DB-backed projection，也不是当前 growth governance 的对象。
+  - 语义上它属于“用户侧约束 / 个性化层”，冲突时优先级高于 [SOUL.md](#soulmd) 和 [IDENTITY.md](#identitymd)。
+  - `USER.md` 不等同于 `principal`、认证后的 canonical user identity、`account_id` 或 `peer_id`；这些身份绑定语义属于 `P2-M3` 的 principal / binding 模型，而不是当前的偏好文件。
+- **Relations**：
+  - `customizes` → [Principal](#principal)
+  - `higher-priority-than` → [SOUL.md](#soulmd)
+  - `higher-priority-than` → [IDENTITY.md](#identitymd)
+
+### IDENTITY.md
+- **Category**：Workspace Context / Presentation
+- **Aliases**：`workspace/IDENTITY.md`
+- **Definition**：当前 workspace 中描述 agent 外在身份名片的结构化文件，用于展示层和表面呈现，例如 name、role、voice 或类似 metadata。它回答“外界看到你叫什么、你以什么角色出现”，而不是“你的内在原则是什么”或“当前服务的用户偏好是什么”。
+- **Notes**：
+  - `IDENTITY.md` 是展示层语义，不是 `SOUL` 的治理对象，不承载 `propose/evaluate/apply/rollback` 生命周期。
+  - 它也不等同于 `principal`、认证身份、`account_id`、`peer_id` 或渠道绑定证据；那些是运行时 identity / binding 语义，不是展示名片。
+  - 在 workspace context 语义上，`IDENTITY.md` 优先级低于 [USER.md](#usermd) 和 [SOUL.md](#soulmd)。
+- **Relations**：
+  - `presentation-layer-for` → [SOUL](#soul)
+  - `lower-priority-than` → [USER.md](#usermd)
+  - `lower-priority-than` → [SOUL.md](#soulmd)
+  - `not-the-same-as` → [Principal](#principal)
 
 ### Principal
 - **Category**：Identity / Runtime
@@ -33,6 +75,8 @@
 - **Definition**：NeoMAGI 在运行时所代表的“同一个用户利益”身份轴。多 agent 默认共享同一个 `SOUL / principal`，而不是各自拥有独立长期人格。
 - **Relations**：
   - `co-defined-by` → [SOUL](#soul)
+
+## Governance & Evaluation
 
 ### Growth Object
 - **Category**：Governance
@@ -82,12 +126,37 @@
   - `produced-by` → adapter `evaluate()` under [GrowthEvalContract](#growthevalcontract)
   - `pins` → [Contract Pinning](#contract-pinning)
 
-### PassRuleKind
+### Mutable Surface
 - **Category**：Governance / Evaluation
-- **Aliases**：pass rule
-- **Definition**：eval contract 中定义 pass/fail 判定策略的有限枚举。V1 只允许 `all_required`（全部 required check 必须通过）和 `hard_pass_and_threshold`（hard check 必须全过，soft check 达阈值即可）。
+- **Aliases**：mutable face
+- **Definition**：一个 growth object 中，被提案允许改变的面。例如 `soul` 的 mutable surface 是 `SOUL.md` 内容和 `soul_versions` payload；`skill_spec` 的 mutable surface 是 `SkillSpec` / `SkillEvidence` 字段。与 immutable harness 分离是 eval contract 的核心不变量。
 - **Relations**：
-  - `used-by` → [GrowthEvalContract](#growthevalcontract)
+  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
+  - `mutated-by` → [Growth Proposal](#growth-proposal)
+
+### Immutable Harness
+- **Category**：Governance / Evaluation
+- **Aliases**：eval harness, judge assets
+- **Definition**：评测所依赖的脚本、case corpus、judge 规则、golden cases、deny-list 等资产集合。proposal 可以改对象，不能改裁判；改裁判必须走单独、版本化、可审计的治理路径。
+- **Relations**：
+  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
+  - `consumed-by` → adapter `evaluate()` implementation
+
+### Contract Pinning
+- **Category**：Governance / Evaluation
+- **Aliases**：eval pinning
+- **Definition**：每次评测必须绑定固定的 `contract_id`、`contract_version`、judge assets、pass rule、budget limits。这是 ADR 0054 不变量 2 的工程表达。pinning 保证同一 proposal 不会因为 contract 变更而改变判定结果。
+- **Relations**：
+  - `enforces` → [GrowthEvalContract](#growthevalcontract)
+  - `recorded-in` → [GrowthEvalResult](#growthevalresult)
+
+### Judge Isolation
+- **Category**：Governance / Evaluation
+- **Aliases**：judge separation
+- **Definition**：proposal 可以改对象，不能改它依赖的 judge / harness。这是 ADR 0054 不变量 1 的核心原则，防止"通过修改裁判来赢"。
+- **Relations**：
+  - `protects` → [Immutable Harness](#immutable-harness)
+  - `constrains` → [Growth Proposal](#growth-proposal)
 
 ### Boundary Gates
 - **Category**：Evaluation
@@ -96,6 +165,22 @@
 - **Relations**：
   - `layer-of` → [GrowthEvalContract](#growthevalcontract)
   - `precedes` → [Effect Evidence](#effect-evidence)
+
+### Hard Checks
+- **Category**：Evaluation
+- **Aliases**：deterministic checks, boundary checks
+- **Definition**：必须通过才能进入后续评测层的 deterministic 验证项。通常落在 Boundary gates 层，例如 schema 校验、非空检查、diff 合理性检查。与 scenario checks 的区别在于：hard checks 是纯 deterministic 的，不依赖外部 case corpus 或运行时环境。
+- **Relations**：
+  - `subset-of` → [Boundary Gates](#boundary-gates)
+  - `required-by` → [GrowthEvalContract](#growthevalcontract)
+
+### Scenario Checks
+- **Category**：Evaluation
+- **Aliases**：scenario tests, regression checks
+- **Definition**：使用固定 case corpus 或回归测试套件验证对象行为的检查项。通常落在 Effect evidence 或 Boundary gates 层。与 hard checks 的区别在于：scenario checks 可能依赖外部 test suite 或 before/after case 对比。
+- **Relations**：
+  - `layer-of` → [Effect Evidence](#effect-evidence) or [Boundary Gates](#boundary-gates)
+  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
 
 ### Effect Evidence
 - **Category**：Evaluation
@@ -119,6 +204,36 @@
 - **Definition**：在质量已达标后，用于比较效率收益的指标层，例如 `tokens_per_success`、`latency_per_success`、`cost_per_success`。它不单独决定是否 apply。
 - **Relations**：
   - `layer-of` → [GrowthEvalContract](#growthevalcontract)
+
+### PassRuleKind
+- **Category**：Governance / Evaluation
+- **Aliases**：pass rule
+- **Definition**：eval contract 中定义 pass/fail 判定策略的有限枚举。V1 只允许 `all_required`（全部 required check 必须通过）和 `hard_pass_and_threshold`（hard check 必须全过，soft check 达阈值即可）。
+- **Relations**：
+  - `used-by` → [GrowthEvalContract](#growthevalcontract)
+
+### Veto Condition
+- **Category**：Governance / Evaluation
+- **Aliases**：veto rule, one-ticket-reject
+- **Definition**：一票否决条件。当 eval 结果中出现 veto condition 匹配时，无论其他 check 结果如何，整体判定为 FAIL。veto conditions 必须在 eval 前固定（ADR 0054 不变量 5），不能看结果后改口径。
+- **Relations**：
+  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
+
+### Supporting Evidence
+- **Category**：Governance
+- **Aliases**：evidence ref
+- **Definition**：附着在 proposal 上的辅助证据引用，如对话 ID、测试结果摘要、外部来源引用等。它本身不是 growth object，不接受独立治理生命周期，只作为 proposal 的可审计附件。
+- **Relations**：
+  - `attached-to` → [Growth Proposal](#growth-proposal)
+
+## Capability Layer
+
+### Capability
+- **Category**：Product Surface
+- **Aliases**：capability cluster
+- **Definition**：对外稳定暴露的能力名或能力簇。它不是内部真实成长对象；内部实际支撑物通常是一个或多个 skill object。
+- **Relations**：
+  - `supported-by` → [Skill Object](#skill-object)
 
 ### Atomic Tool
 - **Category**：Capability Layer
@@ -158,17 +273,10 @@
 - **Relations**：
   - `attached-to` → [SkillSpec](#skillspec)
 
-### Capability
-- **Category**：Product Surface
-- **Aliases**：capability cluster
-- **Definition**：对外稳定暴露的能力名或能力簇。它不是内部真实成长对象；内部实际支撑物通常是一个或多个 skill object。
-- **Relations**：
-  - `supported-by` → [Skill Object](#skill-object)
-
 ### Wrapper Tool
 - **Category**：Capability Layer / Governance Object
 - **Aliases**：`wrapper_tool`
-- **Definition**：single-turn governed capability unit。它内部可以组合多个底层动作，但对上层仍表现为一个原子动作。可被受治理地 apply / rollback / supersede，不承载 cross-turn state（ADR 0056）。适合”多命令但仍原子”的场景，复杂到需要 state / guard / recovery 时就不再适合停留在 wrapper tool。
+- **Definition**：single-turn governed capability unit。它内部可以组合多个底层动作，但对上层仍表现为一个原子动作。可被受治理地 apply / rollback / supersede，不承载 cross-turn state（ADR 0056）。适合"多命令但仍原子"的场景，复杂到需要 state / guard / recovery 时就不再适合停留在 wrapper tool。
 - **Relations**：
   - `built-from` → [Atomic Tool](#atomic-tool)
   - `may-be-promoted-from` → [SkillSpec](#skillspec)
@@ -212,84 +320,6 @@
 - **Relations**：
   - `is-a` → [Growth Object](#growth-object)
 
-### Mutable Surface
-- **Category**：Governance / Evaluation
-- **Aliases**：mutable face
-- **Definition**：一个 growth object 中，被提案允许改变的面。例如 `soul` 的 mutable surface 是 `SOUL.md` 内容和 `soul_versions` payload；`skill_spec` 的 mutable surface 是 `SkillSpec` / `SkillEvidence` 字段。与 immutable harness 分离是 eval contract 的核心不变量。
-- **Relations**：
-  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
-  - `mutated-by` → [Growth Proposal](#growth-proposal)
-
-### Immutable Harness
-- **Category**：Governance / Evaluation
-- **Aliases**：eval harness, judge assets
-- **Definition**：评测所依赖的脚本、case corpus、judge 规则、golden cases、deny-list 等资产集合。proposal 可以改对象，不能改裁判；改裁判必须走单独、版本化、可审计的治理路径。
-- **Relations**：
-  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
-  - `consumed-by` → adapter `evaluate()` implementation
-
-### Hard Checks
-- **Category**：Evaluation
-- **Aliases**：deterministic checks, boundary checks
-- **Definition**：必须通过才能进入后续评测层的 deterministic 验证项。通常落在 Boundary gates 层，例如 schema 校验、非空检查、diff 合理性检查。与 scenario checks 的区别在于：hard checks 是纯 deterministic 的，不依赖外部 case corpus 或运行时环境。
-- **Relations**：
-  - `subset-of` → [Boundary Gates](#boundary-gates)
-  - `required-by` → [GrowthEvalContract](#growthevalcontract)
-
-### Scenario Checks
-- **Category**：Evaluation
-- **Aliases**：scenario tests, regression checks
-- **Definition**：使用固定 case corpus 或回归测试套件验证对象行为的检查项。通常落在 Effect evidence 或 Boundary gates 层。与 hard checks 的区别在于：scenario checks 可能依赖外部 test suite 或 before/after case 对比。
-- **Relations**：
-  - `layer-of` → [Effect Evidence](#effect-evidence) or [Boundary Gates](#boundary-gates)
-  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
-
-### Veto Condition
-- **Category**：Governance / Evaluation
-- **Aliases**：veto rule, one-ticket-reject
-- **Definition**：一票否决条件。当 eval 结果中出现 veto condition 匹配时，无论其他 check 结果如何，整体判定为 FAIL。veto conditions 必须在 eval 前固定（ADR 0054 不变量 5），不能看结果后改口径。
-- **Relations**：
-  - `defined-by` → [GrowthEvalContract](#growthevalcontract)
-
-### Supporting Evidence
-- **Category**：Governance
-- **Aliases**：evidence ref
-- **Definition**：附着在 proposal 上的辅助证据引用，如对话 ID、测试结果摘要、外部来源引用等。它本身不是 growth object，不接受独立治理生命周期，只作为 proposal 的可审计附件。
-- **Relations**：
-  - `attached-to` → [Growth Proposal](#growth-proposal)
-
-### Implementation Artifact
-- **Category**：Implementation
-- **Aliases**：code artifact
-- **Definition**：实现某个 proposal 或 eval 所需的非一等产物，例如代码 diff、实验分支产物、build 输出等。在 P2-M1 中，implementation artifact 不是 growth object。
-- **Relations**：
-  - `produced-by` → [Growth Proposal](#growth-proposal) or eval process
-  - `is-not-a` → [Growth Object](#growth-object)
-
-### Contract Pinning
-- **Category**：Governance / Evaluation
-- **Aliases**：eval pinning
-- **Definition**：每次评测必须绑定固定的 `contract_id`、`contract_version`、judge assets、pass rule、budget limits。这是 ADR 0054 不变量 2 的工程表达。pinning 保证同一 proposal 不会因为 contract 变更而改变判定结果。
-- **Relations**：
-  - `enforces` → [GrowthEvalContract](#growthevalcontract)
-  - `recorded-in` → [GrowthEvalResult](#growthevalresult)
-
-### Judge Isolation
-- **Category**：Governance / Evaluation
-- **Aliases**：judge separation
-- **Definition**：proposal 可以改对象，不能改它依赖的 judge / harness。这是 ADR 0054 不变量 1 的核心原则，防止"通过修改裁判来赢"。
-- **Relations**：
-  - `protects` → [Immutable Harness](#immutable-harness)
-  - `constrains` → [Growth Proposal](#growth-proposal)
-
-### Raw Code Patch
-- **Category**：Implementation Artifact
-- **Aliases**：repo diff, code diff
-- **Definition**：实现某个 proposal 时产生的代码改动产物。在 `P2-M1` 中，它本身不是 growth object，只是 implementation artifact 或 supporting evidence。
-- **Relations**：
-  - `supports` → [Growth Proposal](#growth-proposal)
-  - `is-not-a` → [Growth Object](#growth-object)
-
 ### implementation_ref
 - **Category**：Capability Layer / Implementation
 - **Aliases**：`implementation_ref`
@@ -312,6 +342,8 @@
 - **Relations**：
   - `declared-by` → [Wrapper Tool](#wrapper-tool)
   - `verified-by` → [GrowthEvalContract](#growthevalcontract)
+
+## Builder & Workspace Artifacts
 
 ### BuilderTaskRecord
 - **Category**：Builder / Work Memory
@@ -347,3 +379,21 @@
   - `identifies` → workspace artifacts in `workspace/artifacts/`
   - `referenced-by` → [BuilderTaskRecord](#buildertaskrecord)
   - `referenced-by` → [GrowthCaseRun](#growthcaserun)
+
+## Implementation Artifacts
+
+### Implementation Artifact
+- **Category**：Implementation
+- **Aliases**：code artifact
+- **Definition**：实现某个 proposal 或 eval 所需的非一等产物，例如代码 diff、实验分支产物、build 输出等。在 P2-M1 中，implementation artifact 不是 growth object。
+- **Relations**：
+  - `produced-by` → [Growth Proposal](#growth-proposal) or eval process
+  - `is-not-a` → [Growth Object](#growth-object)
+
+### Raw Code Patch
+- **Category**：Implementation Artifact
+- **Aliases**：repo diff, code diff
+- **Definition**：实现某个 proposal 时产生的代码改动产物。在 `P2-M1` 中，它本身不是 growth object，只是 implementation artifact 或 supporting evidence。
+- **Relations**：
+  - `supports` → [Growth Proposal](#growth-proposal)
+  - `is-not-a` → [Growth Object](#growth-object)
