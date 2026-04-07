@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from src.tools.base import BaseTool, RiskLevel, ToolGroup, ToolMode
+from src.tools.read_state import resolve_search_dir
 
 if TYPE_CHECKING:
     from src.tools.context import ToolContext
@@ -24,14 +25,29 @@ _MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024  # 2 MB per file
 _MAX_LINE_LENGTH = 500  # truncate long matching lines
 
 
+def _grep_file(resolved: Path, regex: re.Pattern, rel_path: str, cap: int) -> list[dict]:
+    """Search a single file for regex matches. Returns at most *cap* hits."""
+    try:
+        text = resolved.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    hits: list[dict] = []
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if not regex.search(line):
+            continue
+        display = line[:_MAX_LINE_LENGTH] + ("..." if len(line) > _MAX_LINE_LENGTH else "")
+        hits.append({"file": rel_path, "line": line_no, "content": display})
+        if len(hits) >= cap:
+            break
+    return hits
+
+
 class GrepTool(BaseTool):
     """Search for text or regex patterns within workspace files."""
 
     def __init__(
-        self,
-        workspace_dir: Path,
-        *,
-        max_results: int = _DEFAULT_MAX_RESULTS,
+        self, workspace_dir: Path, *, max_results: int = _DEFAULT_MAX_RESULTS,
     ) -> None:
         self._workspace_dir = workspace_dir.resolve()
         self._max_results = max_results
@@ -64,7 +80,7 @@ class GrepTool(BaseTool):
     def description(self) -> str:
         return (
             "Search for text or regex patterns in workspace files. "
-            f"Returns up to {_DEFAULT_MAX_RESULTS} matching lines with file paths and line numbers."
+            f"Returns up to {_DEFAULT_MAX_RESULTS} matching lines."
         )
 
     @property
@@ -79,7 +95,7 @@ class GrepTool(BaseTool):
                 "glob": {
                     "type": "string",
                     "description": (
-                        "File glob pattern to filter files, e.g. '**/*.py'. "
+                        "File glob to filter files, e.g. '**/*.py'. "
                         "Default: '**/*'."
                     ),
                 },
@@ -103,91 +119,58 @@ class GrepTool(BaseTool):
         if not isinstance(pattern_str, str) or not pattern_str:
             return {"error_code": "INVALID_ARGS", "message": "pattern must be a non-empty string."}
 
-        flags = 0
-        if arguments.get("case_insensitive", False):
-            flags |= re.IGNORECASE
+        regex = _compile_regex(pattern_str, arguments.get("case_insensitive", False))
+        if isinstance(regex, dict):
+            return regex
 
-        try:
-            regex = re.compile(pattern_str, flags)
-        except re.error as e:
-            return {"error_code": "INVALID_PATTERN", "message": f"Invalid regex: {e}"}
+        dir_result = resolve_search_dir(arguments.get("path", ""), self._workspace_dir)
+        if isinstance(dir_result, dict):
+            return dir_result
+        search_dir, _ = dir_result
 
-        file_glob = arguments.get("glob", "**/*")
-        if not isinstance(file_glob, str) or not file_glob:
-            file_glob = "**/*"
-
-        sub_path = arguments.get("path", "")
-        if sub_path:
-            search_dir = (self._workspace_dir / sub_path).resolve()
-            if not search_dir.is_relative_to(self._workspace_dir):
-                return {
-                    "error_code": "ACCESS_DENIED",
-                    "message": "Path escapes workspace boundary.",
-                }
-        else:
-            search_dir = self._workspace_dir
-
-        if not search_dir.is_dir():
-            return {"error_code": "INVALID_ARGS", "message": f"Directory not found: {sub_path}"}
-
+        file_glob = arguments.get("glob", "**/*") or "**/*"
         try:
             results = await asyncio.to_thread(
-                self._grep_sync, search_dir, regex, file_glob
+                self._grep_sync, search_dir, regex, file_glob,
             )
         except Exception as e:
             logger.exception("grep_error", pattern=pattern_str)
             return {"error_code": "GREP_ERROR", "message": f"Grep failed: {e}"}
 
         truncated = len(results) > self._max_results
-        results = results[: self._max_results]
-
         return {
-            "matches": results,
-            "count": len(results),
-            "truncated": truncated,
-            "pattern": pattern_str,
+            "matches": results[: self._max_results], "count": min(len(results), self._max_results),
+            "truncated": truncated, "pattern": pattern_str,
         }
 
     def _grep_sync(
-        self, search_dir: Path, regex: re.Pattern, file_glob: str
+        self, search_dir: Path, regex: re.Pattern, file_glob: str,
     ) -> list[dict]:
-        """Synchronous grep, runs in thread pool.
-
-        Iterates the glob lazily and collects at most ``max_results + 1``
-        matching lines.  File enumeration order is filesystem-dependent;
-        no full sort of the glob iterator.
-        """
+        """Synchronous grep in thread pool. Bounded to max_results + 1."""
         cap = self._max_results + 1
         results: list[dict] = []
-
         for file_path in search_dir.glob(file_glob):
             if len(results) >= cap:
                 break
             resolved = file_path.resolve()
-            if not resolved.is_file():
+            if not _is_searchable(resolved, self._workspace_dir):
                 continue
-            if not resolved.is_relative_to(self._workspace_dir):
-                continue
-            if resolved.stat().st_size > _MAX_FILE_SIZE_BYTES:
-                continue
-
-            try:
-                text = resolved.read_bytes().decode("utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-
             rel_path = str(resolved.relative_to(self._workspace_dir))
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
-                    display_line = line[:_MAX_LINE_LENGTH]
-                    if len(line) > _MAX_LINE_LENGTH:
-                        display_line += "..."
-                    results.append({
-                        "file": rel_path,
-                        "line": line_no,
-                        "content": display_line,
-                    })
-                    if len(results) >= cap:
-                        break
-
+            results.extend(_grep_file(resolved, regex, rel_path, cap - len(results)))
         return results
+
+
+def _compile_regex(pattern_str: str, case_insensitive: object) -> re.Pattern | dict:
+    flags = re.IGNORECASE if case_insensitive else 0
+    try:
+        return re.compile(pattern_str, flags)
+    except re.error as e:
+        return {"error_code": "INVALID_PATTERN", "message": f"Invalid regex: {e}"}
+
+
+def _is_searchable(resolved: Path, workspace_dir: Path) -> bool:
+    return (
+        resolved.is_file()
+        and resolved.is_relative_to(workspace_dir)
+        and resolved.stat().st_size <= _MAX_FILE_SIZE_BYTES
+    )

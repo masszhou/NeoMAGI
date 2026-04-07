@@ -16,6 +16,7 @@ import structlog
 from src.tools.base import BaseTool, RiskLevel, ToolGroup, ToolMode
 from src.tools.read_state import (
     ReadStateStore,
+    coerce_bool,
     get_read_state_store,
     validate_workspace_path,
 )
@@ -26,18 +27,36 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-def _coerce_bool(value: object) -> bool:
-    """Strict boolean coercion for tool arguments.
+def _staleness_message(error_code: str) -> str:
+    if error_code == "READ_REQUIRED":
+        return (
+            "File has not been read or has been modified since last read. "
+            "Use read_file first."
+        )
+    return "File has been modified since last read. Use read_file to refresh."
 
-    Only Python ``True`` or the string ``"true"`` (case-insensitive) yield
-    ``True``.  Everything else — including truthy strings like ``"false"``
-    — yields ``False``.
-    """
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.lower() == "true"
-    return False
+
+def _check_overwrite_preconditions(
+    store: ReadStateStore, session_id: str, canonical_path: str, target: Path,
+) -> dict | None:
+    """Return error dict if overwrite preconditions fail, else None."""
+    stat = target.stat()
+    stale_err = store.check_staleness(
+        session_id, canonical_path,
+        current_mtime_ns=stat.st_mtime_ns, current_size=stat.st_size,
+    )
+    if stale_err is not None:
+        return {"error_code": stale_err, "message": _staleness_message(stale_err)}
+
+    if not store.is_full_read(session_id, canonical_path):
+        return {
+            "error_code": "PARTIAL_READ",
+            "message": (
+                "Cannot overwrite file with only partial read state. "
+                "Read the complete file (offset=0, no truncation) first."
+            ),
+        }
+    return None
 
 
 class WriteFileTool(BaseTool):
@@ -95,7 +114,10 @@ class WriteFileTool(BaseTool):
                 },
                 "overwrite": {
                     "type": "boolean",
-                    "description": "If true, allow replacing an existing file. Default: false.",
+                    "description": (
+                        "If true, allow replacing an existing file. "
+                        "Default: false."
+                    ),
                 },
             },
             "required": ["file_path", "content"],
@@ -104,11 +126,9 @@ class WriteFileTool(BaseTool):
     async def execute(self, arguments: dict, context: ToolContext | None = None) -> dict:
         raw_path = arguments.get("file_path", "")
         content = arguments.get("content")
-        overwrite = _coerce_bool(arguments.get("overwrite", False))
+        overwrite = coerce_bool(arguments.get("overwrite", False))
 
-        if content is None:
-            return {"error_code": "INVALID_ARGS", "message": "content is required."}
-        if not isinstance(content, str):
+        if content is None or not isinstance(content, str):
             return {"error_code": "INVALID_ARGS", "message": "content must be a string."}
 
         result = validate_workspace_path(raw_path, self._workspace_dir)
@@ -117,67 +137,46 @@ class WriteFileTool(BaseTool):
         target, relative_path = result
         canonical_path = str(target)
         session_id = context.session_id if context else "unknown"
-
         file_exists = target.is_file()
 
+        err = self._gate_overwrite(file_exists, overwrite, session_id, canonical_path, target,
+                                   relative_path)
+        if err is not None:
+            return err
+
+        return self._write(target, content, file_exists, canonical_path, relative_path, session_id)
+
+    def _gate_overwrite(
+        self, file_exists: bool, overwrite: bool,
+        session_id: str, canonical_path: str, target: Path, relative_path: str,
+    ) -> dict | None:
         if file_exists and not overwrite:
             return {
                 "error_code": "FILE_EXISTS",
-                "message": (
-                    f"File already exists: {relative_path}. "
-                    "Set overwrite=true to replace."
-                ),
+                "message": f"File already exists: {relative_path}. Set overwrite=true to replace.",
             }
-
         if file_exists and overwrite:
-            # Read-before-write check
-            stat = target.stat()
-            stale_err = self._read_state_store.check_staleness(
-                session_id, canonical_path,
-                current_mtime_ns=stat.st_mtime_ns, current_size=stat.st_size,
+            return _check_overwrite_preconditions(
+                self._read_state_store, session_id, canonical_path, target,
             )
-            if stale_err is not None:
-                msg = (
-                    "File has not been read or has been modified since last read. "
-                    "Use read_file first."
-                    if stale_err == "READ_REQUIRED"
-                    else "File has been modified since last read. Use read_file to refresh."
-                )
-                return {"error_code": stale_err, "message": msg}
+        return None
 
-            # Full-file update requires complete read
-            if not self._read_state_store.is_full_read(session_id, canonical_path):
-                return {
-                    "error_code": "PARTIAL_READ",
-                    "message": (
-                        "Cannot overwrite file with only partial read state. "
-                        "Read the complete file (offset=0, no truncation) first."
-                    ),
-                }
-
-        # Ensure parent directory exists (for new files in subdirs)
+    @staticmethod
+    def _write(
+        target: Path, content: str, file_exists: bool,
+        canonical_path: str, relative_path: str, session_id: str,
+    ) -> dict:
         target.parent.mkdir(parents=True, exist_ok=True)
-
         try:
-            # Newline-safe write: binary mode + explicit UTF-8 encode
             target.write_bytes(content.encode("utf-8"))
         except OSError as e:
             logger.exception("file_write_error", path=str(target))
             return {"error_code": "WRITE_ERROR", "message": f"Failed to write file: {e}"}
 
         operation = "update" if file_exists else "create"
-        logger.info(
-            "file_written",
-            path=relative_path,
-            operation=operation,
-            size=len(content),
-            session_id=session_id,
-        )
-
+        logger.info("file_written", path=relative_path, operation=operation,
+                     size=len(content), session_id=session_id)
         return {
-            "ok": True,
-            "operation": operation,
-            "file_path": canonical_path,
-            "relative_path": relative_path,
-            "size": len(content.encode("utf-8")),
+            "ok": True, "operation": operation, "file_path": canonical_path,
+            "relative_path": relative_path, "size": len(content.encode("utf-8")),
         }

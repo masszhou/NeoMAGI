@@ -8,7 +8,6 @@ import type {
   ChatSendParams,
   HistoryMessage,
   SessionSetModeParams,
-  SessionModeResponseData,
 } from "@/types/rpc"
 
 // Error codes considered non-recoverable (persistent toast)
@@ -371,24 +370,12 @@ export const useChatStore = create<ChatState>()(
 
         setMode: (mode: SessionMode) => {
           if (!wsClient?.isConnected) return
-          const state = get()
-          const sessionId = state.activeSessionId
-
+          const sessionId = get().activeSessionId
           const requestId = crypto.randomUUID()
-          updateSession(
-            sessionId,
-            () => ({ pendingModeRequestId: requestId }),
-            "setModePending",
-          )
-
+          updateSession(sessionId, () => ({ pendingModeRequestId: requestId }), "setModePending")
           wsClient.send({
-            type: "request",
-            id: requestId,
-            method: "session.set_mode",
-            params: {
-              session_id: sessionId,
-              mode,
-            } satisfies SessionSetModeParams,
+            type: "request", id: requestId, method: "session.set_mode",
+            params: { session_id: sessionId, mode } satisfies SessionSetModeParams,
           })
         },
 
@@ -649,10 +636,8 @@ export const useChatStore = create<ChatState>()(
 
             case "response": {
               // Mode response — route by pendingModeRequestId
-              const modeData = message.data as
-                | SessionModeResponseData
-                | undefined
-              if (modeData && "mode" in modeData) {
+              if ("mode" in message.data) {
+                const modeStr = message.data.mode as string
                 for (const [sid, session] of Object.entries(
                   state.sessionsById,
                 )) {
@@ -660,7 +645,7 @@ export const useChatStore = create<ChatState>()(
                     updateSession(
                       sid,
                       () => ({
-                        mode: modeData.mode as SessionMode,
+                        mode: modeStr as SessionMode,
                         pendingModeRequestId: null,
                       }),
                       "setModeComplete",
@@ -672,6 +657,9 @@ export const useChatStore = create<ChatState>()(
               }
 
               // History response — route by pendingHistoryId
+              const historyData = message.data as {
+                messages: HistoryMessage[]
+              }
               let targetSessionId: string | null = null
               for (const [sid, session] of Object.entries(
                 state.sessionsById,
@@ -686,7 +674,7 @@ export const useChatStore = create<ChatState>()(
               clearSessionHistoryGuard(targetSessionId)
 
               const historyMessages: ChatMessage[] =
-                message.data.messages.map((hm: HistoryMessage) => ({
+                historyData.messages.map((hm: HistoryMessage) => ({
                   id: crypto.randomUUID(),
                   role: hm.role,
                   content: hm.content,

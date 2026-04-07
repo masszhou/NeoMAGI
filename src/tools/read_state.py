@@ -95,6 +95,44 @@ def get_read_state_store() -> ReadStateStore:
     return _global_read_state_store
 
 
+def coerce_bool(value: object) -> bool:
+    """Strict boolean coercion for tool arguments.
+
+    Only Python ``True`` or the string ``"true"`` (case-insensitive) yield
+    ``True``.  Everything else — including truthy strings like ``"false"``
+    — yields ``False``.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() == "true"
+    return False
+
+
+def resolve_search_dir(
+    sub_path: str,
+    workspace_dir: Path,
+) -> tuple[Path, None] | dict:
+    """Resolve a subdirectory within the workspace for glob/grep.
+
+    Returns (resolved_dir, None) on success, or error dict on failure.
+    """
+    if sub_path:
+        search_dir = (workspace_dir / sub_path).resolve()
+        if not search_dir.is_relative_to(workspace_dir):
+            return {
+                "error_code": "ACCESS_DENIED",
+                "message": "Path escapes workspace boundary.",
+            }
+    else:
+        search_dir = workspace_dir
+
+    if not search_dir.is_dir():
+        return {"error_code": "INVALID_ARGS", "message": f"Directory not found: {sub_path}"}
+
+    return search_dir, None
+
+
 def validate_workspace_path(
     raw_path: str,
     workspace_dir: Path,

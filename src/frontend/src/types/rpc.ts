@@ -55,9 +55,7 @@ export interface HistoryMessage {
 export interface ResponseMessage {
   type: "response"
   id: RequestId
-  data: {
-    messages: HistoryMessage[]
-  }
+  data: Record<string, unknown>
 }
 
 export interface ToolDeniedMessage {

@@ -15,6 +15,7 @@ import structlog
 from src.tools.base import BaseTool, RiskLevel, ToolGroup, ToolMode
 from src.tools.read_state import (
     ReadStateStore,
+    coerce_bool,
     get_read_state_store,
     validate_workspace_path,
 )
@@ -25,18 +26,41 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-def _coerce_bool(value: object) -> bool:
-    """Strict boolean coercion for tool arguments.
+def _check_staleness(
+    store: ReadStateStore, session_id: str, canonical_path: str, target: Path,
+) -> dict | None:
+    """Return error dict if read state is missing/stale, else None."""
+    stat = target.stat()
+    stale_err = store.check_staleness(
+        session_id, canonical_path,
+        current_mtime_ns=stat.st_mtime_ns, current_size=stat.st_size,
+    )
+    if stale_err is None:
+        return None
+    msg = (
+        "File has not been read yet. Use read_file first."
+        if stale_err == "READ_REQUIRED"
+        else "File has been modified since last read. Use read_file to refresh."
+    )
+    return {"error_code": stale_err, "message": msg}
 
-    Only Python ``True`` or the string ``"true"`` (case-insensitive) yield
-    ``True``.  Everything else — including truthy strings like ``"false"``
-    — yields ``False``.
-    """
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.lower() == "true"
-    return False
+
+def _match_and_replace(
+    file_content: str, old_string: str, new_string: str, replace_all: bool,
+) -> dict | str:
+    """Validate match count and return new content or error dict."""
+    match_count = file_content.count(old_string)
+    if match_count == 0:
+        return {"error_code": "NO_MATCH", "message": "old_string not found in file."}
+    if match_count > 1 and not replace_all:
+        return {
+            "error_code": "MULTIPLE_MATCHES",
+            "message": (
+                f"old_string found {match_count} times. "
+                "Provide more context for unique match, or set replace_all=true."
+            ),
+        }
+    return file_content.replace(old_string, new_string, -1 if replace_all else 1)
 
 
 class EditFileTool(BaseTool):
@@ -99,7 +123,8 @@ class EditFileTool(BaseTool):
                 "replace_all": {
                     "type": "boolean",
                     "description": (
-                        "Replace all occurrences. Default: false (unique match required)."
+                        "Replace all occurrences. "
+                        "Default: false (unique match required)."
                     ),
                 },
             },
@@ -107,22 +132,15 @@ class EditFileTool(BaseTool):
         }
 
     async def execute(self, arguments: dict, context: ToolContext | None = None) -> dict:
-        raw_path = arguments.get("file_path", "")
         old_string = arguments.get("old_string")
         new_string = arguments.get("new_string")
-        replace_all = _coerce_bool(arguments.get("replace_all", False))
+        replace_all = coerce_bool(arguments.get("replace_all", False))
 
-        if old_string is None or not isinstance(old_string, str):
-            return {"error_code": "INVALID_ARGS", "message": "old_string must be a string."}
-        if new_string is None or not isinstance(new_string, str):
-            return {"error_code": "INVALID_ARGS", "message": "new_string must be a string."}
-        if old_string == new_string:
-            return {
-                "error_code": "INVALID_ARGS",
-                "message": "old_string and new_string are identical.",
-            }
+        err = _validate_strings(old_string, new_string)
+        if err is not None:
+            return err
 
-        result = validate_workspace_path(raw_path, self._workspace_dir)
+        result = validate_workspace_path(arguments.get("file_path", ""), self._workspace_dir)
         if isinstance(result, dict):
             return result
         target, relative_path = result
@@ -132,46 +150,26 @@ class EditFileTool(BaseTool):
         if not target.is_file():
             return {"error_code": "FILE_NOT_FOUND", "message": f"File not found: {relative_path}"}
 
-        # Read-before-edit check
-        stat = target.stat()
-        stale_err = self._read_state_store.check_staleness(
-            session_id, canonical_path,
-            current_mtime_ns=stat.st_mtime_ns, current_size=stat.st_size,
-        )
-        if stale_err is not None:
-            msg = (
-                "File has not been read yet. Use read_file first."
-                if stale_err == "READ_REQUIRED"
-                else "File has been modified since last read. Use read_file to refresh."
-            )
-            return {"error_code": stale_err, "message": msg}
+        stale = _check_staleness(self._read_state_store, session_id, canonical_path, target)
+        if stale is not None:
+            return stale
 
-        # Read current content (newline-safe: binary read + UTF-8 decode)
+        return self._apply(target, old_string, new_string, replace_all,
+                           canonical_path, relative_path, session_id)
+
+    @staticmethod
+    def _apply(
+        target: Path, old_string: str, new_string: str, replace_all: bool,
+        canonical_path: str, relative_path: str, session_id: str,
+    ) -> dict:
         try:
             file_content = target.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError) as e:
             return {"error_code": "READ_ERROR", "message": f"Failed to read file: {e}"}
 
-        # Count occurrences
-        match_count = file_content.count(old_string)
-
-        if match_count == 0:
-            return {
-                "error_code": "NO_MATCH",
-                "message": "old_string not found in file.",
-            }
-
-        if match_count > 1 and not replace_all:
-            return {
-                "error_code": "MULTIPLE_MATCHES",
-                "message": (
-                    f"old_string found {match_count} times. "
-                    "Provide more context for unique match, or set replace_all=true."
-                ),
-            }
-
-        # Perform replacement
-        new_content = file_content.replace(old_string, new_string, -1 if replace_all else 1)
+        new_content = _match_and_replace(file_content, old_string, new_string, replace_all)
+        if isinstance(new_content, dict):
+            return new_content
 
         try:
             target.write_bytes(new_content.encode("utf-8"))
@@ -179,17 +177,20 @@ class EditFileTool(BaseTool):
             logger.exception("file_edit_error", path=str(target))
             return {"error_code": "WRITE_ERROR", "message": f"Failed to write file: {e}"}
 
-        replacements_made = match_count if replace_all else 1
-        logger.info(
-            "file_edited",
-            path=relative_path,
-            replacements=replacements_made,
-            session_id=session_id,
-        )
-
+        replacements = file_content.count(old_string) if replace_all else 1
+        logger.info("file_edited", path=relative_path, replacements=replacements,
+                     session_id=session_id)
         return {
-            "ok": True,
-            "file_path": canonical_path,
-            "relative_path": relative_path,
-            "replacements": replacements_made,
+            "ok": True, "file_path": canonical_path,
+            "relative_path": relative_path, "replacements": replacements,
         }
+
+
+def _validate_strings(old_string: object, new_string: object) -> dict | None:
+    if old_string is None or not isinstance(old_string, str):
+        return {"error_code": "INVALID_ARGS", "message": "old_string must be a string."}
+    if new_string is None or not isinstance(new_string, str):
+        return {"error_code": "INVALID_ARGS", "message": "new_string must be a string."}
+    if old_string == new_string:
+        return {"error_code": "INVALID_ARGS", "message": "old_string and new_string are identical."}
+    return None

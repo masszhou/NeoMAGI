@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from src.tools.base import BaseTool, RiskLevel, ToolGroup, ToolMode
+from src.tools.read_state import resolve_search_dir
 
 if TYPE_CHECKING:
     from src.tools.context import ToolContext
@@ -87,19 +88,10 @@ class GlobTool(BaseTool):
         if not isinstance(pattern, str) or not pattern:
             return {"error_code": "INVALID_ARGS", "message": "pattern must be a non-empty string."}
 
-        sub_path = arguments.get("path", "")
-        if sub_path:
-            search_dir = (self._workspace_dir / sub_path).resolve()
-            if not search_dir.is_relative_to(self._workspace_dir):
-                return {
-                    "error_code": "ACCESS_DENIED",
-                    "message": "Path escapes workspace boundary.",
-                }
-        else:
-            search_dir = self._workspace_dir
-
-        if not search_dir.is_dir():
-            return {"error_code": "INVALID_ARGS", "message": f"Directory not found: {sub_path}"}
+        dir_result = resolve_search_dir(arguments.get("path", ""), self._workspace_dir)
+        if isinstance(dir_result, dict):
+            return dir_result
+        search_dir, _ = dir_result
 
         try:
             matches = await asyncio.to_thread(self._glob_sync, search_dir, pattern)
@@ -108,29 +100,18 @@ class GlobTool(BaseTool):
             return {"error_code": "GLOB_ERROR", "message": f"Glob failed: {e}"}
 
         truncated = len(matches) > self._max_results
-        matches = matches[: self._max_results]
-
-        # Convert to workspace-relative paths
-        relative_paths = []
-        for m in matches:
-            resolved = m.resolve()
-            if resolved.is_relative_to(self._workspace_dir):
-                relative_paths.append(str(resolved.relative_to(self._workspace_dir)))
-
+        relative_paths = [
+            str(m.resolve().relative_to(self._workspace_dir))
+            for m in matches[: self._max_results]
+            if m.resolve().is_relative_to(self._workspace_dir)
+        ]
         return {
-            "matches": relative_paths,
-            "count": len(relative_paths),
-            "truncated": truncated,
-            "pattern": pattern,
+            "matches": relative_paths, "count": len(relative_paths),
+            "truncated": truncated, "pattern": pattern,
         }
 
     def _glob_sync(self, search_dir: Path, pattern: str) -> list[Path]:
-        """Synchronous glob, runs in thread pool.
-
-        Iterates lazily, collects at most ``max_results + 1`` entries
-        (the extra one detects truncation), then sorts the bounded
-        result set.  No full materialization of the glob iterator.
-        """
+        """Synchronous glob in thread pool. Bounded to max_results + 1."""
         cap = self._max_results + 1
         filtered: list[Path] = []
         for p in search_dir.glob(pattern):
