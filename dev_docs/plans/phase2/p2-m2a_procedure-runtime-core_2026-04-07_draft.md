@@ -43,7 +43,7 @@ doc_id_assigned_at: 2026-04-07T19:16:48.900+02:00
 
 ## Current Baseline
 
-- 当前 `AgentLoop` 以单 agent loop + tool calling 为主，工具执行路径集中在 `message_flow`、`tool_concurrency` 与 `tool_runner`。
+- 当前 `AgentLoop` 以单 agent loop + tool call 为主，工具执行路径集中在 `message_flow`、`tool_concurrency` 与 `tool_runner`。
 - `BaseTool.execute()` 仍返回裸 `dict`，没有正式 `ToolResult.context_patch` typed surface。
 - `ToolRegistry` 只按 mode 返回 ambient tools，不支持 procedure state 派生的 action tool schema。
 - session 持久化已有 PostgreSQL `sessions` / `messages`，并具备 session claim、lock token、seq fencing 与 compaction state。
@@ -89,7 +89,7 @@ OpenAI function calling 只给出 tool name，不给出单独的 `action_id`。
 
 这样可以保留 `ActionSpec` 的状态机语义，避免多个 action 绑定同一个 tool 时产生歧义。
 
-### D4. Procedure action 是并发 barrier
+### D4. Procedure action 使用 barrier 串行化
 
 P2-M1 post-works 已支持同 turn 只读工具并发，但 `ProcedureRuntime` 第一轮不参与自动并发。
 
@@ -114,6 +114,7 @@ V1 继续以 `session_id` 作为 lifecycle 边界，但新增一个轻量 `Proce
 - future `shared_space_id`
 
 P2-M2a 不解释这些字段，不据此做 memory visibility、membership 或 consent 判定。
+V1 必须使用 `ProcedureExecutionMetadata` frozen model 校验写入，所有字段默认为 `None`，并拒绝未知 key；不得把 `execution_metadata` 作为任意 JSON scratchpad。
 
 ## Non-Goals
 
@@ -144,11 +145,14 @@ V1 类型放在 `src/procedures/types.py`，对齐 `design_docs/procedure_runtim
 - `ActionSpec.tool` 可由 `ToolRegistry` 解析
 - `entry_policy` V1 只接受 `explicit`
 - action id 不得与 synthetic runtime tool 名冲突，例如 `procedure_enter`
+- action id 不得与 `ToolRegistry` 中已注册的 ambient tool name 冲突；冲突必须在静态校验或 schema 合并时 fail-fast，不允许 silent override
 - action id 必须满足 OpenAI function name 约束，并在 virtual action schema 中保持唯一
+
+`ProcedureGuardRegistry` 只管理 procedure 自定义 guard，不包装现有 mode / risk guard。执行顺序固定为：先跑现有 tool mode / risk gate，再跑 procedure action guard；两者职责分层，失败语义也分开记录。
 
 ### ToolResult
 
-新增 `src/tools/result.py`：
+新增 `src/procedures/result.py`：
 
 - `ToolResult(ok: bool = True, data: dict = Field(default_factory=dict), context_patch: dict = Field(default_factory=dict))`
 - `normalize_tool_result(raw: dict | ToolResult) -> ToolResult`
@@ -156,9 +160,29 @@ V1 类型放在 `src/procedures/types.py`，对齐 `design_docs/procedure_runtim
 归一化规则：
 
 - 现有工具无需改签名，仍可返回裸 `dict`。
-- 若裸 `dict` 含 `context_patch`，executor 提取到 `ToolResult.context_patch`。
+- `normalize_tool_result()` 只在 `ProcedureRuntime.apply_action()` 内调用，不替换 `tool_runner` 的全局返回路径。
+- 若 procedure action 绑定的底层 tool 返回裸 `dict` 且含 `context_patch`，procedure executor 提取到 `ToolResult.context_patch`。
 - 若裸 `dict` 没有 `data` 包装，保留原 dict 去除 `context_patch` 后的内容作为 `data`，避免破坏当前工具消费路径。
 - `context_patch` 只允许 procedure executor 写回 `ActiveProcedure.context`，非 procedure tool loop 不解释它。
+
+这意味着普通 ambient tool 即使返回名为 `context_patch` 的 key，也不会被非 procedure 路径解释；只有 procedure action 的底层 tool 返回会被归一化。
+
+### ProcedureExecutionMetadata
+
+V1 类型放在 `src/procedures/types.py`：
+
+- `actor: str | None = None`
+- `principal_id: str | None = None`
+- `publish_target: str | None = None`
+- `visibility_intent: str | None = None`
+- `shared_space_id: str | None = None`
+
+约束：
+
+- frozen model
+- reject unknown fields
+- 写入 store 前必须 model-validate
+- P2-M2a 不解释这些字段，只保证后续扩展不会面对任意 shape 的历史脏数据
 
 ### ActiveProcedure Store
 
@@ -188,6 +212,18 @@ active_procedures
 
 `completed_at` 是 persistence-only 字段，用于 enforce single active invariant；domain projection 仍保持 `ActiveProcedure` 的最小字段。
 
+### CasConflict
+
+V1 使用返回值模式，不用异常表示 CAS conflict。
+
+`src/procedures/types.py` 增加 frozen dataclass：
+
+- `instance_id: str`
+- `expected_revision: int`
+- `actual_revision: int | None`
+
+`actual_revision = None` 表示实例不存在、已完成或无法读取当前 revision。Runtime 收到 `CasConflict` 后返回 retryable structured result，state/context/revision 不变。
+
 ### Enter Semantics
 
 `enter_procedure(session_id, spec_id, initial_context, execution_metadata, mode)` 固定顺序：
@@ -213,7 +249,7 @@ active_procedures
 6. 跑 procedure action guard。
 7. 调用底层 tool executor。
 8. 归一化 `dict | ToolResult`。
-9. 若 `ok == False`，停留原 state，不写 `context_patch`。
+9. 若 `ok == False`，停留原 state，不写 `context_patch`，但仍把 `ToolResult.data` 作为 tool result 返回给模型。
 10. 对 `context_patch` 做 top-level shallow merge。
 11. 用 `context_model` 校验合并后的 context。
 12. 用 CAS 写回 `state = ActionSpec.to`、`context`、`revision + 1`。
@@ -225,6 +261,12 @@ active_procedures
 - tool failure：state/context/revision 不变。
 - invalid patch：state/context/revision 不变。
 - CAS conflict：返回 retryable conflict，不做部分提交。
+
+同一 turn 内的 retry 语义：
+
+- 如果某个 procedure action 返回 `ok == False`，revision 不变；后续同 turn 的同一 action 可在 state 仍允许且 expected revision 仍匹配时重试。
+- 如果某个 procedure action 成功迁移，runtime 必须刷新当前 active procedure revision；后续同 turn 的 procedure action 必须基于刷新后的 revision 执行，否则返回 CAS conflict。
+- 所有 tool failure data 都应进入 transcript，供模型解释失败原因或决定是否重试。
 
 ### Prompt View
 
@@ -248,6 +290,8 @@ V1 view 包含：
 - 可由 `spec + state + context` 推导的 runtime 真相
 
 每次 procedure action 成功迁移后，`RequestState.procedure_view` 与 `system_prompt` 必须刷新，确保下一轮模型看到最新 checkpoint。
+
+V1 不实现 purposeful compact，但 `ActiveProcedure.context` 必须被视为自包含 checkpoint。Procedure guard 或 tool 不得依赖已在聊天历史中出现但未写入 procedure context 的具体消息内容；如果需要保留证据、用户确认或中间结果，必须通过 bounded `context_patch` 写入 context。
 
 ### Steering / Resume
 
@@ -285,11 +329,11 @@ P2-M2a 的 steering / resume 只做 checkpoint 级最小闭环：
 
 ### Slice A. Core Types + Registries
 
-- 新增 `src/tools/result.py`。
+- 新增 `src/procedures/result.py`。
 - 新增 `src/procedures/types.py`，包含 spec、active instance、guard decision、execution metadata 与 view 类型。
 - 新增 `ProcedureSpecRegistry`、`ProcedureContextRegistry`、`ProcedureGuardRegistry`。
 - 实现 `validate_procedure_spec(spec, tool_registry, context_registry, guard_registry)`。
-- 单元测试覆盖 invalid state、missing context model、missing guard、missing tool、entry_policy 非 explicit。
+- 单元测试覆盖 invalid state、missing context model、missing guard、missing tool、entry_policy 非 explicit、action id 与 ambient tool name 冲突、unknown execution metadata key。
 
 ### Slice B. PostgreSQL Store + Migration
 
@@ -299,7 +343,7 @@ P2-M2a 的 steering / resume 只做 checkpoint 级最小闭环：
   - `create(active: ActiveProcedure) -> ActiveProcedure`
   - `get_active(session_id: str) -> ActiveProcedure | None`
   - `get(instance_id: str) -> ActiveProcedure | None`
-  - `cas_update(instance_id, expected_revision, state, context, completed_at) -> ActiveProcedure | Conflict`
+  - `cas_update(instance_id, expected_revision, state, context, completed_at) -> ActiveProcedure | CasConflict`
 - 测试覆盖 single-active unique、terminal 后可再次 enter、CAS conflict。
 
 ### Slice C. Runtime Executor
@@ -310,6 +354,7 @@ P2-M2a 的 steering / resume 只做 checkpoint 级最小闭环：
 - 实现 top-level shallow merge，不做 deep merge。
 - 实现 `ToolResult` 归一化。
 - 确保 procedure guard 在现有 mode / risk gate 之后执行，职责不混。
+- 覆盖 `ok == False` 返回 data 但不推进 state 的行为，以及同 turn retry 的 expected revision 语义。
 
 ### Slice D. AgentLoop Integration
 
@@ -358,6 +403,15 @@ P2-M2a 的 steering / resume 只做 checkpoint 级最小闭环：
   - `PROCEDURE_INVALID_PATCH`
   - `PROCEDURE_TOOL_UNAVAILABLE`
 
+### Slice Dependencies
+
+- `Slice A` 是 `Slice C/D/E` 的前置。
+- `Slice B` 可在 `Slice A` 类型冻结后与 `Slice E` 并行。
+- `Slice C` 依赖 `Slice A + B`。
+- `Slice D` 依赖 `Slice C + E`。
+- `Slice F` 依赖 `Slice C + D`。
+- `Slice G` 贯穿全程，不应作为最后集中补日志的大改动。
+
 ## Acceptance
 
 Hard acceptance for P2-M2a first implementation:
@@ -390,9 +444,12 @@ Explicitly not required in first implementation:
 
 ```bash
 uv run pytest tests/procedures -q
+uv run pytest tests/integration/test_procedure_store.py -q
 uv run pytest tests/test_prompt_builder.py tests/test_tool_concurrency.py -q
 uv run pytest tests/integration/test_tool_loop_flow.py -q
 ```
+
+其中 `tests/integration/test_procedure_store.py` 必须使用真实 PostgreSQL 测试 partial unique index、CAS conflict 与 terminal 后释放 single-active 约束。
 
 合并前质量门禁：
 
@@ -407,6 +464,8 @@ just test
 just test-frontend
 uv run pytest tests/integration/test_websocket.py -q
 ```
+
+若在 `gateway/app.py` 注入 `ProcedureRuntime` composition root，追加 gateway wiring smoke，验证未配置 procedure runtime 时现有启动路径不变，配置后 `AgentLoop` 获得同一个 runtime 实例。
 
 ## Collaboration / Gate Notes
 
@@ -472,8 +531,8 @@ P2-M2a 完成后，P2-M2b 可以在其上继续：
 - AgentLoop procedure view / virtual action routing
 - 最小 checkpoint / resume 验收测试
 
-## Open Questions For Draft Review
+## Draft Review Resolution
 
-- Q1. 第一轮是否需要内置一个用户可触发的 demo procedure，还是先只保留测试 fixture spec？
-- Q2. `procedure_enter` 是否应作为 synthetic runtime tool 暴露给模型，还是先通过内部 API / UI 显式入口触发？
-- Q3. `procedure_spec` growth adapter 是否作为 P2-M2a 后半段单独计划，还是并入 P2-M2b 前的 follow-up？
+- Q1. 第一轮只保留 test fixture spec，不内置用户可触发 demo procedure。内置 demo 会引入产品语义、context model 与 guard 争议，超出 runtime core 验收。
+- Q2. V1 不把 `procedure_enter` 作为 tool 暴露给模型；先通过内部 API / 显式入口触发。模型自发 enter 的 UX 与误触发边界留到后续计划。
+- Q3. `procedure_spec` growth adapter 作为 P2-M2a 完成后的独立 follow-up（建议命名 `P2-M2a-post`），不并入 P2-M2b。adapter 可复用 P2-M1b/M1c governance pattern，不依赖 multi-agent handoff 语义。
