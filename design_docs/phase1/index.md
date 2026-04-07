@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-742a-aca8-53f9be4aa2de
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # Phase 1 Archive Index
 
 > 目的：归档已完成的 Phase 1 设计文档，避免它们继续占据后续阶段的默认上下文。  

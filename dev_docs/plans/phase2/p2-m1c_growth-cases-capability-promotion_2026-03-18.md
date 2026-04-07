@@ -1,3 +1,8 @@
+---
+doc_id: 019d02c8-5668-7726-9317-ce7b908adc77
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T22:09:37+01:00
+---
 # P2-M1c 实施计划：Growth Cases 与 Capability Promotion
 
 - Date: 2026-03-18

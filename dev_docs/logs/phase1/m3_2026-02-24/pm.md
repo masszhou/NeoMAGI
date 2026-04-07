@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-74a9-a2c5-e58a6c6ca771
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M3 Persistent Memory — PM 阶段汇总
 
 > 日期：2026-02-24

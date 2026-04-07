@@ -1,3 +1,8 @@
+---
+doc_id: 019d0ff2-0ed8-729c-8051-9cb58aa855c4
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-21T11:30:15+01:00
+---
 # Phase 2 Design Index
 
 > 目的：为 Phase 2 提供技术架构入口。  

@@ -1,3 +1,8 @@
+---
+doc_id: 019d6457-9290-7229-a4d9-8173ed8eac21
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T21:49:14+02:00
+---
 # wrapper_tool_versions
 
 > Schema: `neomagi`  

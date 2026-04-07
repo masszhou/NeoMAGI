@@ -1,3 +1,8 @@
+---
+doc_id: 019d649b-ee90-7a88-99c2-34f904faffa6
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T23:03:54+02:00
+---
 # P2-M1 Post Works P1：Multi-Session Threads
 
 - Date: 2026-04-06

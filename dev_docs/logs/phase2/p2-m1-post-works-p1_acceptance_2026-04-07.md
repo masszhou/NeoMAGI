@@ -1,3 +1,8 @@
+---
+doc_id: 019d66f0-d728-7c0a-b0ba-5831780f01f7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T09:55:53+02:00
+---
 # P2-M1 Post Works P1: Multi-Session Threads — 验收通过
 
 - Date: 2026-04-07

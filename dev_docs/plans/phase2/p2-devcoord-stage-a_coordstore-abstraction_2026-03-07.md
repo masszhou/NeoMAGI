@@ -1,3 +1,8 @@
+---
+doc_id: 019cc8f4-0bf8-76e4-bc00-c34dcb14bbcb
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T16:39:23+01:00
+---
 # P2-Devcoord Stage A 实施计划：CoordStore 抽象层
 
 - Date: 2026-03-07

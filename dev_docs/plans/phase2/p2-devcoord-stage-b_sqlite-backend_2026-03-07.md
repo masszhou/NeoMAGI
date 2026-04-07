@@ -1,3 +1,8 @@
+---
+doc_id: 019cc8f4-0bf8-7b6b-ab64-13a7c15b2d5c
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T16:39:23+01:00
+---
 # P2-Devcoord Stage B 实施计划：SQLite 后端与 Render/Audit 切换
 
 - Date: 2026-03-07

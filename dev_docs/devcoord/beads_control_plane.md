@@ -1,3 +1,8 @@
+---
+doc_id: 019cca0c-ea50-7a91-8ea3-5b3d40bada0d
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T21:46:10+01:00
+---
 # Beads Control Plane
 
 > **状态：superseded**

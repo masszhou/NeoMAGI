@@ -1,3 +1,8 @@
+---
+doc_id: 019cfd58-1c40-7717-8652-a9357e50a771
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T20:48:56+01:00
+---
 # P2 Memory Source Schema Patch 实施计划
 
 - Date: 2026-03-17

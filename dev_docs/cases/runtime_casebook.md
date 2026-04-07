@@ -1,3 +1,8 @@
+---
+doc_id: 019c94dc-5e60-7f50-aea6-06049843df8a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-25T13:53:16+01:00
+---
 # Runtime Casebook
 
 > 记录规范与模板见 [README.md](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/cases/README.md)。

@@ -1,3 +1,8 @@
+---
+doc_id: 019d0320-a3e0-7120-aa99-ad2f24509e0a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T23:46:04+01:00
+---
 # bd Feasibility Spike Results
 
 - **Date**: 2026-03-18

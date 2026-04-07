@@ -1,3 +1,8 @@
+---
+doc_id: 019ccccf-6998-7696-8ba2-ebfdb3a63c3c
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-08T10:37:51+01:00
+---
 # P2 Beads Git-JSONL Backup Migration
 
 - Date: 2026-03-08

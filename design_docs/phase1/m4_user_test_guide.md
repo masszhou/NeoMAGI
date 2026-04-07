@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7d34-aae6-b471bfacf150
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # M4 用户测试流程（Telegram 第二渠道）
 
 > 版本：M4 改进后实现

@@ -1,3 +1,8 @@
+---
+doc_id: 019cca0c-ea50-7057-8935-d2e3082a94fe
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T21:46:10+01:00
+---
 # Logs 目录说明
 
 `dev_docs/logs/` 用于保存 milestone 级协作日志目录，但 M7 起协作控制三件套已经降级为 projection。

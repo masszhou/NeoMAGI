@@ -1,3 +1,8 @@
+---
+doc_id: 019cd990-2320-7e7f-942c-52a2f2e54eb6
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-10T22:03:48+01:00
+---
 # P2 Complexity Batch Hotspot Cleanup
 
 - Date: 2026-03-10

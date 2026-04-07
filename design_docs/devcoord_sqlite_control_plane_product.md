@@ -1,3 +1,8 @@
+---
+doc_id: 019ccabe-7f40-7327-83cc-a71f77bd453a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-08T01:00:08+01:00
+---
 # Devcoord SQLite Control Plane：产品口径说明
 
 > 状态：approved

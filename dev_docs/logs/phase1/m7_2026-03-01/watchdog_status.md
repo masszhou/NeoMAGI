@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7830-8a6f-e08d969ad49f
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M7 Watchdog Status
 
 | role | status | last_heartbeat | current_task | stale_risk | action |

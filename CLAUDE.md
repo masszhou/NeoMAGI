@@ -37,6 +37,21 @@ neomagi/
 
 > **重要**：不使用 SQLite，所有持久化走 PostgreSQL 17。数据库连接读 `.env`，模板在 `.env_template`。配置优先级：环境变量 > `.env` > 默认值。容器命令一律 podman，不用 docker。
 
+## 文档 ID 规则
+
+- `design_docs/` 和 `dev_docs/` 下的所有 `.md` 文件必须有 UUIDv7 frontmatter：
+  ```yaml
+  ---
+  doc_id: 019d6457-9290-7dda-...
+  doc_id_format: uuidv7
+  doc_id_assigned_at: 2026-04-07T00:00:00+02:00
+  ---
+  ```
+- 新建文档时手动添加，或用 `uv run python scripts/assign_doc_ids.py --apply` 批量补录。
+- UUIDv7 的时间戳分量编码文件的 git 最后修改时间（新文件即当前时间）。
+- `doc_id_assigned_at` 记录 ID 分配时间，不是文件创建时间。
+- 已有 `doc_id` 的文件不会被覆盖（脚本幂等）。
+
 ## 编码规范
 
 ### 风格

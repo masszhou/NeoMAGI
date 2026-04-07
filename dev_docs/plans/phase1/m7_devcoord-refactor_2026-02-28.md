@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7e59-be1f-5995dae180e2
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M7 DevCoord 重构计划
 
 > 状态：superseded by `dev_docs/plans/phase1/m7_devcoord-refactor_2026-02-28_v2.md`

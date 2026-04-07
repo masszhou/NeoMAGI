@@ -1,3 +1,8 @@
+---
+doc_id: 019cc277-0938-7f3e-a5d2-45a5be3729f7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:25:07+01:00
+---
 # M4 Post-Review 修正计划
 
 > 日期：2026-03-02

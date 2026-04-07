@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-70df-a828-57edf4c355d3
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # NeoMAGI 项目分阶段规划（精简版）
 
 ## 1. 规划原则

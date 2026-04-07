@@ -1,3 +1,8 @@
+---
+doc_id: 019cca3f-3938-7633-8a90-8f70ec385720
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T22:41:07+01:00
+---
 # P2-Devcoord Stage D 实施计划：Beads Cutover and Closeout Hardening
 
 - Date: 2026-03-07

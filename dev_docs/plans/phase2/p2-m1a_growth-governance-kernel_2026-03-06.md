@@ -1,3 +1,8 @@
+---
+doc_id: 019cc971-0428-7a6d-8a07-5810270ea863
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T18:55:53+01:00
+---
 # P2-M1a 实施计划：Growth Governance Kernel
 
 - Date: 2026-03-06

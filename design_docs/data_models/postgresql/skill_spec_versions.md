@@ -1,3 +1,8 @@
+---
+doc_id: 019d6457-9290-7b7e-bfb4-6baac7f15f80
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T21:49:14+02:00
+---
 # skill_spec_versions
 
 > Schema: `neomagi`  

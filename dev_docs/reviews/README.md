@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7ce8-927f-719e9bdc1c1a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # Reviews 命名规则
 
 `dev_docs/reviews/` 用于保存里程碑实现评审与阶段性审查结果。

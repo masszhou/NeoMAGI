@@ -1,3 +1,8 @@
+---
+doc_id: 019cc591-5510-7efd-a26d-dcba5f80042f
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T00:52:42+01:00
+---
 # P2-M1a 显式成长治理内核 — PM 阶段汇总
 
 > 日期：2026-03-06 ~ 2026-03-07

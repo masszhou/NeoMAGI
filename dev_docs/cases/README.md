@@ -1,3 +1,8 @@
+---
+doc_id: 019c94dc-5e60-7eaa-bdd5-721d75ca1171
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-25T13:53:16+01:00
+---
 # Cases README
 
 `dev_docs/cases/` 用于记录运行期发现的可复现 case（含已修复/延后/不修复），保证问题上下文连续、可追溯。

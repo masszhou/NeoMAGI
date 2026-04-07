@@ -1,3 +1,8 @@
+---
+doc_id: 019cc914-bf10-7794-80e3-d2855bda8849
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T17:15:06+01:00
+---
 # P2-M2 Architecture（计划）
 
 > 状态：planned  

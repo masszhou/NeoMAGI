@@ -1,3 +1,8 @@
+---
+doc_id: 019cbfbe-bf38-7ef2-aad4-5d365ccfd9b9
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T21:44:35+01:00
+---
 # NeoMAGI Recovery Runbook
 
 ## Prerequisites

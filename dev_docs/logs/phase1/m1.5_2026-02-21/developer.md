@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7ee3-9eef-e50f8f7833aa
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M1.5 Tool Modes — Developer Log
 
 **Milestone:** M1.5 Tool Modes (review-fixes)

@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7be4-8d4b-555b7306df57
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # Reports README
 
 `dev_docs/reports/` 用于保存阶段性评测、验收与结论报告。

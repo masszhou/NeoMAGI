@@ -1,3 +1,8 @@
+---
+doc_id: 019cbffe-c1f0-719b-a23a-b6d8760c02aa
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:54:30+01:00
+---
 # NeoMAGI 产品路线图 v3（Product-Oriented）
 
 > 基于 v2 (`design_docs/phase1/roadmap_milestones_v2.md`) 演进。

@@ -1,3 +1,8 @@
+---
+doc_id: 019cc2b0-2268-76e8-aab5-2ded9dc03187
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T11:27:29+01:00
+---
 # Project Progress README
 
 用 `dev_docs/progress/project_progress.md`（Append-only）追踪“项目当前推进到什么阶段”。文件只做增量记录，不做历史改写。

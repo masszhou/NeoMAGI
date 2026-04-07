@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-710b-a4ab-b399f66f6bac
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M5 Gate 1 Review: Phase 1 Health Endpoints + Doctor CLI
 
 > Gate: m5-g1 | Target commit: 5836d8e | Reviewer: tester | Date: 2026-03-04

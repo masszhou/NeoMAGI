@@ -1,3 +1,8 @@
+---
+doc_id: 019cc8f4-0bf8-763c-a18f-818bb85e3fb1
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T16:39:23+01:00
+---
 # P2-Devcoord 实施计划：SQLite Control Plane
 
 - Date: 2026-03-07

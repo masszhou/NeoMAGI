@@ -1,3 +1,8 @@
+---
+doc_id: 019cd497-6ab8-724f-af6f-d573a1999f27
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-09T22:53:39+01:00
+---
 # Beads Git-JSONL Backup Migration — Restore Drill Report
 
 - Date: 2026-03-09

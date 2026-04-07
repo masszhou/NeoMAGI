@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-777a-9aa9-7dbf3d6b4796
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # M6 Architecture（计划）
 
 > 状态：planned  

@@ -1,3 +1,8 @@
+---
+doc_id: 019cc277-0938-7a87-8db2-25d6f288056b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:25:07+01:00
+---
 # NeoMAGI 项目分阶段规划 v2
 
 > 基于 v1 (`design_docs/phase1/roadmap_milestones.md`) 演进。

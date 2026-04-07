@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-71a8-9e5d-d3105cf5d48e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M6 P1 Fix: Budget Gate Integration & Eval Judgment Correction
 
 **Status**: APPROVED

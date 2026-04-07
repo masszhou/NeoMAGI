@@ -1,3 +1,8 @@
+---
+doc_id: 019cc2b0-2268-7581-a5fc-ddfd72e4a983
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T11:27:29+01:00
+---
 # Plans 目录说明
 
 `dev_docs/plans/` 用于持久化保存计划文档（讨论草稿 + 经用户审批的最终版），作为项目长期记忆。

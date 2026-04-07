@@ -1,3 +1,8 @@
+---
+doc_id: 019d64f8-df88-7e76-9253-3c618bd7dfec
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T00:45:25+02:00
+---
 # P2-M1 Open Issues
 
 > 说明：`bd` 仍是 canonical issue tracker；本文件只记录 `P2-M1` 设计/验收层面的 root cause 摘要，避免问题背景散落在聊天记录中。

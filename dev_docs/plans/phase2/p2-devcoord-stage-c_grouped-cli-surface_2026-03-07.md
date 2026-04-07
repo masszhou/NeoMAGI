@@ -1,3 +1,8 @@
+---
+doc_id: 019cc9cc-0cd8-725e-a5f2-ff109ace9745
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T20:35:19+01:00
+---
 # P2-Devcoord Stage C 实施计划：Grouped CLI Surface
 
 - Date: 2026-03-07

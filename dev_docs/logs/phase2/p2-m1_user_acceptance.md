@@ -1,3 +1,8 @@
+---
+doc_id: 019d66f0-d728-74c1-92ec-6f45f55ffc16
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T09:55:53+02:00
+---
 # P2-M1 用户验收测试记录
 
 > 对应测试指导：`design_docs/phase2/p2_m1_user_test_guide.md`

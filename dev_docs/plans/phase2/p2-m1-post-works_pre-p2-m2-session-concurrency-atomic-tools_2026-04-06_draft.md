@@ -1,3 +1,8 @@
+---
+doc_id: 019d649b-ee90-7ca9-ab61-2ea252ba8d0b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T23:03:54+02:00
+---
 # P2-M1 Post Works 总览（草案）
 
 - Date: 2026-04-06

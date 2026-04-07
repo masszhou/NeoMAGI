@@ -1,3 +1,8 @@
+---
+doc_id: 019cccd7-5108-75c9-b6be-1773a7519449
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-08T10:46:29+01:00
+---
 # SQLite Control Plane Runtime
 
 > 状态：approved

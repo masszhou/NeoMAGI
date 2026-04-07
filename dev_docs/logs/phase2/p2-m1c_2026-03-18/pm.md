@@ -1,3 +1,8 @@
+---
+doc_id: 019d0d4b-d5d8-75a6-b48b-bee4907b7406
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-20T23:09:27+01:00
+---
 # P2-M1c Growth Cases 与 Capability Promotion — PM 阶段汇总
 
 > 日期：2026-03-18 ~ 2026-03-20

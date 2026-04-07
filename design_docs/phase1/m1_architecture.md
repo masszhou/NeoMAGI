@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-76d7-9f5c-098e94df833a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # M1 Architecture（已完成总结）
 
 > 状态：done  

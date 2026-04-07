@@ -1,3 +1,8 @@
+---
+doc_id: 019d0d4b-d5d8-7ac2-805f-2e3ca264ca92
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-20T23:09:27+01:00
+---
 # P2-M1C Watchdog Status
 
 | role | status | last_heartbeat | current_task | stale_risk | action |

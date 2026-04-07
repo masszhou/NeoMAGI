@@ -1,3 +1,8 @@
+---
+doc_id: 019d66f0-d728-79df-bb73-8c7284a1603c
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T09:55:53+02:00
+---
 # Project Progress
 
 ## 2026-02-16 18:34 (local) | M0

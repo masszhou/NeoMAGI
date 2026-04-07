@@ -1,3 +1,8 @@
+---
+doc_id: 019d0316-2078-7ee5-a44a-815ef05087df
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T23:34:35+01:00
+---
 # GC-3 Decision: Import Protocol Deferred
 
 - **Date**: 2026-03-18

@@ -1,3 +1,8 @@
+---
+doc_id: 019ccabe-7f40-7ed4-838c-ccc7359ef1bf
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-08T01:00:08+01:00
+---
 # Devcoord SQLite 控制面设计
 
 > 状态：approved

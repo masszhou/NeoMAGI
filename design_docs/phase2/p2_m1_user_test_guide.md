@@ -1,3 +1,8 @@
+---
+doc_id: 019d6468-8668-7f83-882b-8bcb2e1f851d
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T22:07:45+02:00
+---
 # P2-M1 用户测试指导
 
 > 版本：P2-M1 完成态（含 post-review 修正 + 验收实操反馈）  

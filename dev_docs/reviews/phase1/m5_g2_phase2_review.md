@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7544-8add-916f48fa9255
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M5 Gate 2 Review: Phase 2 Backup/Restore + M5 Final Acceptance
 
 > **结论：PASS**

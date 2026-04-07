@@ -1,3 +1,8 @@
+---
+doc_id: 019cc971-0428-71a9-937c-67d2e2b140a8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T18:55:53+01:00
+---
 # Skill Objects
 
 > 状态：approved  

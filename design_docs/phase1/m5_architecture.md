@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7f07-99ce-85a6cee803d2
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # M5 Architecture（计划）
 
 > 状态：planned（触发式进入）  

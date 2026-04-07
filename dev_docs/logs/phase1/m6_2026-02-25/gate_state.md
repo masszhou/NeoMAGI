@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-79a9-917d-921bf500c29b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M6 Gate State
 
 | Gate | Phase | Status | Result | Opened | Closed | Target Commit | Report |

@@ -1,3 +1,8 @@
+---
+doc_id: 019cc277-0938-704d-8759-146f0991d1d8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:25:07+01:00
+---
 # M7 Devcoord Skill Layering Draft
 
 - Date: 2026-03-01

@@ -1,3 +1,8 @@
+---
+doc_id: 019cca6a-e8d0-77f1-87ac-c6d451dfca3f
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T23:28:50+01:00
+---
 # P2-Devcoord 达成性测试设计：SQLite Control Plane
 
 - Date: 2026-03-07

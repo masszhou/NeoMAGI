@@ -1,3 +1,8 @@
+---
+doc_id: 019d0d4b-d5d8-7670-857a-d6ba028b2073
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-20T23:09:27+01:00
+---
 # P2-M1C Gate State
 
 | Gate | Phase | Status | Result | Opened | Closed | Target Commit | Report |

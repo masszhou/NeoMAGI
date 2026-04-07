@@ -1,3 +1,8 @@
+---
+doc_id: 019cf8e8-71c8-7c28-8a91-bd92c2ab125a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T00:08:29+01:00
+---
 # SOUL.md - Who You Are
 
 _This file is your identity. Read it every session. Update it as you grow. If you change this file, tell the user -- this is your soul, not a config._

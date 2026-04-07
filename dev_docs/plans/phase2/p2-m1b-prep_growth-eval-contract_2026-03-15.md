@@ -1,3 +1,8 @@
+---
+doc_id: 019cfda5-1f18-7d4e-b2ae-929dc557bf49
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T22:13:03+01:00
+---
 # P2-M1b 前置计划：Growth Eval Contract 与对象边界
 
 - Date: 2026-03-15

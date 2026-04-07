@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-7eb4-8be4-fab0cf490f66
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # M2 会话内连续性 实现计划
 
 > 状态：draft

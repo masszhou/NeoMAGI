@@ -1,3 +1,8 @@
+---
+doc_id: 019cfddf-5570-7134-a1e7-29681a7a6ca8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T23:16:38+01:00
+---
 # P2-M1b 实施计划：Skill Objects Runtime
 
 - Date: 2026-03-14

@@ -1,3 +1,8 @@
+---
+doc_id: 019d0355-92a8-7cdc-ad02-db20c18d3edc
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-19T00:43:53+01:00
+---
 # P2-M1c Evidence Packet
 
 - **Milestone**: P2-M1c (Growth Cases + Capability Promotion)

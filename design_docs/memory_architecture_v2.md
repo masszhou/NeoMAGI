@@ -1,3 +1,8 @@
+---
+doc_id: 019cbffe-c1f0-722b-ba32-01170d08f372
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:54:30+01:00
+---
 # 记忆架构 v2（原则版）
 
 > 状态：current  

@@ -1,3 +1,8 @@
+---
+doc_id: 019d6457-9290-75e5-b2b1-6cf5a63c86c0
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-06T21:49:14+02:00
+---
 # PostgreSQL Data Model Index
 
 > 作用：为应用自有 PostgreSQL 表提供稳定阅读入口。每张表单独一页，说明表用途、一行代表什么、列含义，以及与其他表/文档的关系。  

@@ -1,3 +1,8 @@
+---
+doc_id: 019cab82-4be8-731b-8a25-1315f1914dd1
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-01T23:26:09+01:00
+---
 # Claude Code Skill Triggering Notes
 
 > 日期：2026-03-01

@@ -1,3 +1,8 @@
+---
+doc_id: 019cc277-0938-7bb2-ba69-e1628f8ad336
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:25:07+01:00
+---
 # M5 实现计划：运营可靠性
 
 > 状态：approved

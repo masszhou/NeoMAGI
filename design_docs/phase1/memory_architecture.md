@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7b8a-9ddb-0dc0750c397c
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # 记忆架构（当前状态 + M2/M3 规划）
 
 > 原则不变：记忆基于文件，不依赖模型参数记忆。  

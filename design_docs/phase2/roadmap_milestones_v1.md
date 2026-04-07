@@ -1,3 +1,8 @@
+---
+doc_id: 019cc914-bf10-7012-b4e0-47ab95f0fb1e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T17:15:06+01:00
+---
 # NeoMAGI Phase 2 路线图 v1（Product-Oriented）
 
 > 状态：draft

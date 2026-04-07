@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7003-b10c-2d4926189897
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # M4 Architecture（已实现）
 
 > 状态：implemented

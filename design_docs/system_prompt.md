@@ -1,3 +1,8 @@
+---
+doc_id: 019cf8f2-1e58-77dd-a163-ac44e417fa4e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T00:19:03+01:00
+---
 # System Prompt 文件体系
 
 学习 OpenClaw 的设计， NeoMAGI每次 agent turn 都会动态组装 system prompt，核心由 buildAgentSystemPrompt() 函数完成。它从 workspace 目录加载一组 bootstrap 文件，全部注入到 context window 的 Project Context 区域。每个文件上限 65,536 字符。
