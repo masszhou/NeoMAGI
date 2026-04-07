@@ -12,6 +12,7 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
   - [`design_docs/phase2/roadmap_milestones_v1.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/roadmap_milestones_v1.md)
   - [`decisions/0025-mode-switching-user-controlled-chat-safe-default.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0025-mode-switching-user-controlled-chat-safe-default.md)
   - [`decisions/0026-session-mode-storage-and-propagation.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0026-session-mode-storage-and-propagation.md)
+  - [`decisions/0058-coding-mode-open-conditions.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/decisions/0058-coding-mode-open-conditions.md)
   - [`dev_docs/plans/phase2/p2-m1-post-works-p2_tool-concurrency-metadata_2026-04-06.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/dev_docs/plans/phase2/p2-m1-post-works-p2_tool-concurrency-metadata_2026-04-06.md)
   - [`src/tools/base.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/src/tools/base.py)
   - [`src/session/manager.py`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/src/session/manager.py)
@@ -31,20 +32,20 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
 
 ## Current Baseline
 
-- 当前已有 `read_file`，并且只在 `ToolMode.coding` 下可见
+- 当前已有 `read_file`，并且只在 `ToolMode.coding` 下可见。
 - `read_file` 语义只读，已声明 `is_read_only = True`，但未声明 `is_concurrency_safe = True`；`BaseTool` 默认值为 `False`
-- 当前没有 `glob` / `grep` / `write_file` / `edit_file` / `bash`
+- 当前没有 `glob` / `grep` / `write_file` / `edit_file` / `bash`。
 - 当前虽然存在 `ToolMode.coding` 概念，但 `SessionManager.get_mode()` 存在 M1.5 guardrail：即使 DB 中 `mode=coding`，运行时也会被强制降级为 `chat_safe`
-- `SessionSettings.default_mode` 当前也通过 validator 拒绝非 `chat_safe` 的 `SESSION_DEFAULT_MODE`
-- 当前没有外部 mode 写接口：`SessionManager` 无 `set_mode()`，WebSocket `chat.send` 参数也没有 mode 字段
+- `SessionSettings.default_mode` 当前也通过 validator 拒绝非 `chat_safe` 的 `SESSION_DEFAULT_MODE`；ADR 0058 要求继续保持这一点。
+- 当前没有外部 mode 写接口：`SessionManager` 无 `set_mode()`，WebSocket 也没有显式 mode 切换方法。
 - `gateway/protocol.py` 已有 `ToolDeniedData.mode`，可承载执行闸门拒绝事件中的 mode 信息；这为 `chat_safe` 下拒绝 coding-only tool call 提供现有协议基础
 
 这意味着：
 
-- 先不解决入口策略，atomic coding tools 即使实现了也未必真正可用
-- 开放 `coding` 入口不是单纯参数调整，而是解除 M1.5 guardrail 与 ADR 0025 阶段边界
+- `P3` 代码实现必须先补齐 per-session `coding` 入口，否则 atomic coding tools 即使实现了也跑不到。
+- mode 入口策略已经由 ADR 0058 固定；本计划不要求 Claude Code 重新判断策略。
 
-## Core Decision
+## Implementation Scope
 
 `P3` 按三层推进，但只有前两层是当前硬 scope：
 
@@ -75,28 +76,17 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
 
 这套组合已经足够验证大量 repo-level coding 行为。
 
-## Prerequisite
+## Implementation Assumptions
 
-在真正实现 `Stage A/B/C` 之前，必须先冻结 coding 入口策略。
+本计划只指导 Claude Code 的代码实现；mode 入口策略以 ADR 0058 为准，不在实现阶段重新讨论。
 
-至少要明确：
+固定假设：
 
-- 哪类 session 可以进入 coding mode
-- 这个入口是实验路径还是正式路径
-- `chat_safe` 是否继续保持默认降级
-
-必须显式完成的前置任务：
-
-- 若本轮开放 `coding`，先新建下一编号 ADR，作为 ADR 0025 的后续决议，明确 mode 开放条件、交互提示与回退策略；当前建议文件名：`decisions/0058-coding-mode-open-conditions.md`
-- 决定入口策略：保持 per-session 显式用户切换，不允许模型自动从请求意图升级 mode
-- 决定 `chat_safe` 仍为默认路径，且高风险 coding tools 默认不暴露给 `chat_safe`
-- 移除或条件化 `SessionManager.get_mode()` 中的 M1.5 hard guardrail
-- 建议 `SessionSettings.default_mode` validator 继续只接受 `chat_safe`；`coding` 入口通过 per-session `set_mode()` 实现，而不是通过全局默认配置打开
-- 决定是否新增 `SessionManager.set_mode()` 与对应 RPC / UI 显式切换路径
-- 决定 `gateway/app.py` 中仅注入 `default_mode` 是否足够，还是必须支持 per-session 动态切换
-- 增加测试覆盖：DB 中 `mode=coding` 在已开放策略下不再被降级；未开放策略下仍 fail-closed 到 `chat_safe`
-
-如果这一步不先完成，后续工具会变成“实现了但跑不到”。
+- `coding` 入口是 per-session、用户显式动作。
+- `SESSION_DEFAULT_MODE` 继续只允许 `chat_safe`。
+- 模型不能自行切换 mode，也不能基于请求意图自动升级到 `coding`。
+- `SessionManager.get_mode()` 应尊重 DB 中合法的 per-session `coding` 值；异常、缺失或非法值仍 fail-closed 到 `chat_safe`。
+- coding-only tools 在 `chat_safe` 下必须同时满足不可见和不可执行。
 
 ## Stage A: Read-Only Repo Inspection
 
@@ -195,29 +185,28 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
 - 禁止交互式命令
 - 明确环境变量继承策略
 
-## Go / No-Go Recommendation For `bash`
+## Stage C Scope Rule
 
 当前建议是：**先不把 `bash` 纳入第一轮硬实现与硬验收。**
 
 建议只有在以下条件都满足后，再开启 `Stage C`：
 
 1. `Stage A/B` 已经稳定
-2. coding mode 入口已经冻结
+2. coding mode 入口代码路径已经完成
 3. 后续验收明确需要“运行测试 / lint / build 命令”这一类能力
 
 如果这三个条件还没同时满足，`bash` 应继续保留为 reserved follow-up。
 
 ## Suggested Implementation Slices
 
-### Slice A. Coding Entry Freeze
+### Slice A. Coding Entry Implementation
 
-- 新建下一编号 ADR，作为 ADR 0025 的后续决议，明确开放 `coding` 的条件、交互提示与回退策略；当前建议文件名：`decisions/0058-coding-mode-open-conditions.md`
-- 明确 coding mode 的进入方式：per-session、用户显式动作、模型不可自行切换
-- 明确 default path 仍是 `chat_safe`
-- 移除或条件化 `SessionManager.get_mode()` 的 M1.5 hard guardrail
-- 决定是否新增 `SessionManager.set_mode()` 与 WebSocket RPC / frontend UI 显式切换
-- 保持 `SESSION_DEFAULT_MODE` 只允许 `chat_safe`，除非新 ADR 明确给出偏离理由
-- 更新并补齐 mode 相关测试
+- 按 ADR 0058 移除或条件化 `SessionManager.get_mode()` 的 M1.5 hard guardrail，让合法 `mode=coding` 可生效。
+- 新增 `SessionManager.set_mode()`，写入 per-session mode，并保持非法 mode fail-closed / validation error。
+- 增加显式用户触发的 WebSocket RPC mode 切换方法；不要把 mode 加成 `chat.send` 的隐式升级参数。
+- 保持 `SessionSettings.default_mode` validator 只接受 `chat_safe`。
+- 更新 frontend RPC 类型与最小 UI 入口，使用户可以显式切换当前 session mode。
+- 补齐 mode 相关测试：`chat_safe` 默认路径、per-session `coding` 生效、非法 mode 拒绝、DB 异常 fail-closed、模型不能通过 tool call 自行升级。
 
 ### Slice B. Stage A Tools
 
@@ -236,8 +225,8 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
 ### Slice D. Stage C Evaluation
 
 - 不先默认实现
-- 先做 go / no-go 决策
-- 若 go，再单独实现 `bash`
+- 先记录是否进入独立 follow-up 的判断
+- 若进入 follow-up，再单独实现 `bash`
 
 ## Acceptance
 
@@ -259,10 +248,9 @@ doc_id_assigned_at: 2026-04-06T22:46:49+02:00
 
 ## Risks
 
-### R1. 不先冻结 coding 入口，工具实现会失去真实运行路径
+### R1. 不先实现 coding 入口，工具实现会失去真实运行路径
 
-这不是文档问题，而是验收问题。  
-因此入口冻结必须写进 `P3` 前置。
+ADR 0058 已固定入口策略。因此 `P3` 必须先完成 per-session `coding` 入口代码路径，再验收 atomic coding tools。
 
 ### R2. `edit_file` 如果支持模糊 patch，会放大 silent drift
 
