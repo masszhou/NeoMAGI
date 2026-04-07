@@ -520,3 +520,33 @@
   - (LOW) 启动恢复失败时 log+skip，后续可补 degraded health signal
 - Next: P2-M1 全部关闭；按 `design_docs/phase2/roadmap_milestones_v1.md` 进入 P2-M2 (Procedure Runtime 与多 Agent 执行)
 - Risk: 无阻塞风险
+
+## 2026-04-06 (local) | P2-M1 user acceptance testing
+- Status: done
+- Done: 用户按 `design_docs/phase2/p2_m1_user_test_guide.md` 完成全量手工验收 — A 层 7/7 PASS (T03-webchat SKIP), B 层 5/5 PASS, 产物检查 3/3 PASS
+- Detail:
+  - T04 期间发现 rolled-back skill 未在 runtime 禁用 — Codex 协助修复 (`517dce3` fix(agent): disable rolled-back skills in runtime, 5 files, +157/-17)
+  - T05/T08 观测到 OI-01: teaching_intent 同时写入 skill_spec_versions 和 memory/daily notes，导致 skill 与 memory 复用路径串线，无法仅凭行为区分 — 记录为已知设计缺口，见 `design_docs/phase2/p2_m1_open_issues.md`
+- Evidence: `dev_docs/logs/phase2/p2-m1_user_acceptance.md`, commit `517dce3`, `fa174e1`
+- Next: P2-M1 验收通过，进入 post-works
+- Risk: OI-01 不阻塞，后续 skill/memory 边界明确化时处理
+
+## 2026-04-07 (local) | P2-M1 Post Works P1: Multi-Session Threads
+- Status: done
+- Done: WebChat 多 session 线程功能实现 — 左侧 thread rail, 创建/切换线程, 后台并发 streaming, 断线恢复, localStorage 持久化; 4 commits, 7 文件变更 (+1637/-455), 41 frontend tests; 3 轮 review 修复 5 个 findings (断线回收/活动排序/terminal state/aborted 终态)
+- Detail:
+  - Store 重构: `sessionsById` per-session 状态, `requestToSession` 事件路由, `pendingHistoryId` per-session history 匹配
+  - ThreadRail: 左侧 rail, New Thread, active 高亮, streaming/unread/aborted 指示, `lastActivityAt` 排序
+  - 兼容性: 默认 `main` thread 保留旧历史, 新 thread `web:{uuid}`
+  - 断线恢复: `_setConnectionStatus` 清空 `requestToSession`, 重置 `isStreaming`, message→error, tool→aborted
+- Evidence: commits `a578556`..`31f8563`; `dev_docs/logs/phase2/p2-m1-post-works-p1_acceptance_2026-04-07.md`; 41 tests passed; build clean
+- Plan: `dev_docs/plans/phase2/p2-m1-post-works-p1_multi-session-threads_2026-04-06.md`
+- Next: P2-M1 Post Works P2 (tool concurrency metadata) / P3 (atomic coding tools), 均为 draft 待批准
+- Risk: 无
+
+## 2026-04-07 (local) | P2-M1 final closeout
+- Status: done
+- Done: P2-M1 显式成长治理内核全部关闭 — 含 M1a (governance kernel) + M1b (skill objects runtime) + M1c (growth cases + capability promotion) + 用户验收 + Post Works P1 (multi-session threads)
+- Milestone totals: P2-M1a~M1c 实现 1503 tests → 用户验收修复 +157 → Post Works P1 +41 frontend tests; OI-01 作为已知设计缺口延后处理
+- Next: P2-M1 Post Works 剩余项 (P2 tool-concurrency-metadata / P3 atomic-coding-tools, 均 draft); 之后按 roadmap 进入 P2-M2
+- Risk: 无阻塞风险
