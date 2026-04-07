@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from src.agent.events import TextChunk, ToolCallInfo, ToolDenied
+from src.agent.events import TextChunk, ToolCallInfo
 from src.agent.guardrail import GuardCheckResult, check_pre_llm_guard, maybe_refresh_contract
 from src.agent.model_client import ContentDelta, ToolCallsComplete
+from src.agent.tool_concurrency import _build_execution_groups, _execute_group
 from src.agent.tool_history import (
     _messages_with_seq_to_openai,
     _safe_parse_args,
@@ -17,13 +18,6 @@ from src.session.scope_resolver import SessionIdentity
 
 if TYPE_CHECKING:
     from src.agent.agent import AgentLoop
-
-# Error codes from guardrail.py that indicate a guard denial (not a tool failure).
-_GUARD_DENY_CODES = frozenset({
-    "GUARD_CONTRACT_UNAVAILABLE",
-    "GUARD_ANCHOR_MISSING",
-    "MODE_DENIED",
-})
 
 
 @dataclass
@@ -417,59 +411,37 @@ async def _handle_tool_calls(
         tool_calls=_tool_calls_payload(tool_calls_result),
         lock_token=state.lock_token,
     )
-    for tool_call in tool_calls_result:
-        async for event in _execute_single_tool(loop, state, tool_call, guard_state):
-            yield event
+    groups = _build_execution_groups(tool_calls_result, loop._tool_registry)
+    for group in groups:
+        # Phase 1: yield ToolCallInfo for all tools BEFORE execution
+        for tc in group.tool_calls:
+            parsed_args = _log_parse_result(tc)
+            yield ToolCallInfo(
+                tool_name=tc["name"], arguments=parsed_args, call_id=tc["id"],
+            )
+        # Phase 2: execute group (serial or parallel)
+        outcomes = await _execute_group(
+            loop, state, group, guard_state,
+            session_id=state.session_id, iteration=iteration,
+        )
+        # Phase 3: emit ToolDenied, merge failure signals, append transcript in order
+        for outcome in outcomes:
+            if outcome.denied_event is not None:
+                yield outcome.denied_event
+            if outcome.failure_signal is not None:
+                state.accumulated_failure_signals.append(outcome.failure_signal)
+            await loop._session_manager.append_message(
+                state.session_id,
+                "tool",
+                json.dumps(outcome.result),
+                tool_call_id=outcome.tool_call["id"],
+                lock_token=state.lock_token,
+            )
     _agent_logger().info(
         "tool_call_iteration",
         iteration=iteration + 1,
         tools_called=len(tool_calls_result),
         session_id=state.session_id,
-    )
-
-
-async def _execute_single_tool(
-    loop: AgentLoop,
-    state: RequestState,
-    tool_call: dict[str, str],
-    guard_state: GuardCheckResult,
-) -> Any:
-    """Execute a single tool call, yielding events and recording signals."""
-    parsed_args = _log_parse_result(tool_call)
-    yield ToolCallInfo(
-        tool_name=tool_call["name"],
-        arguments=parsed_args,
-        call_id=tool_call["id"],
-    )
-    denial = _mode_denial(loop, state, tool_call)
-    if denial is not None:
-        denied_event, result = denial
-        state.accumulated_failure_signals.append(f"guard_denied:{tool_call['name']}")
-        yield denied_event
-    else:
-        result = await loop._execute_tool(
-            tool_call["name"],
-            tool_call["arguments"],
-            scope_key=state.scope_key,
-            session_id=state.session_id,
-            guard_state=guard_state,
-        )
-        if isinstance(result, dict) and not result.get("ok", True):
-            error_code = result.get("error_code", "")
-            if error_code in _GUARD_DENY_CODES:
-                state.accumulated_failure_signals.append(
-                    f"guard_denied:{tool_call['name']}"
-                )
-            else:
-                state.accumulated_failure_signals.append(
-                    f"tool_failure:{tool_call['name']}"
-                )
-    await loop._session_manager.append_message(
-        state.session_id,
-        "tool",
-        json.dumps(result),
-        tool_call_id=tool_call["id"],
-        lock_token=state.lock_token,
     )
 
 
@@ -608,41 +580,6 @@ def _merge_tool_calls_result(
     incoming: list[dict[str, str]] | None,
 ) -> list[dict[str, str]] | None:
     return incoming if incoming is not None else current
-
-
-def _mode_denial(
-    loop: AgentLoop,
-    state: RequestState,
-    tool_call: dict[str, str],
-) -> tuple[ToolDenied, dict[str, Any]] | None:
-    tool = loop._tool_registry.get(tool_call["name"]) if loop._tool_registry else None
-    if tool is None or loop._tool_registry.check_mode(tool_call["name"], state.mode):
-        return None
-    _agent_logger().warning(
-        "tool_denied_by_mode",
-        tool_name=tool_call["name"],
-        mode=state.mode.value,
-        session_id=state.session_id,
-    )
-    message = f"Tool '{tool_call['name']}' is not available in '{state.mode.value}' mode."
-    next_action = "当前为 chat_safe 模式，代码工具不可用。未来版本将支持 coding 模式。"
-    denied = ToolDenied(
-        tool_name=tool_call["name"],
-        call_id=tool_call["id"],
-        mode=state.mode.value,
-        error_code="MODE_DENIED",
-        message=message,
-        next_action=next_action,
-    )
-    result = {
-        "ok": False,
-        "error_code": "MODE_DENIED",
-        "tool_name": tool_call["name"],
-        "mode": state.mode.value,
-        "message": message,
-        "next_action": next_action,
-    }
-    return denied, result
 
 
 def _detect_teaching_intent(content: str) -> bool:

@@ -463,7 +463,7 @@ class TestGuardDeniedSignalClassification:
 
     def test_guard_deny_codes_classify_correctly(self) -> None:
         """Error codes from guardrail.py should be in _GUARD_DENY_CODES."""
-        from src.agent.message_flow import _GUARD_DENY_CODES
+        from src.agent.tool_concurrency import _GUARD_DENY_CODES
 
         assert "GUARD_CONTRACT_UNAVAILABLE" in _GUARD_DENY_CODES
         assert "GUARD_ANCHOR_MISSING" in _GUARD_DENY_CODES

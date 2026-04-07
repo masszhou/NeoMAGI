@@ -71,6 +71,24 @@ class BaseTool(ABC):
         """
         return RiskLevel.high
 
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads state without side effects.
+
+        Fail-closed default: False.
+        """
+        return False
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        """Whether this tool is safe for automatic parallel execution.
+
+        Both is_read_only AND is_concurrency_safe must be True for the
+        runtime to include this tool in a parallel execution group.
+        Fail-closed default: False.
+        """
+        return False
+
     @abstractmethod
     async def execute(self, arguments: dict, context: ToolContext | None = None) -> dict:
         """Execute the tool with given arguments and optional runtime context.

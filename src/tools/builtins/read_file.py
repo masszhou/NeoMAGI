@@ -32,6 +32,10 @@ class ReadFileTool(BaseTool):
         return RiskLevel.low
 
     @property
+    def is_read_only(self) -> bool:
+        return True
+
+    @property
     def name(self) -> str:
         return "read_file"
 

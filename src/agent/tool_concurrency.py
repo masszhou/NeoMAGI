@@ -1,0 +1,274 @@
+"""Tool concurrency: execution grouping and bounded parallel dispatch.
+
+Provides the group builder, single-tool runner, and parallel executor
+for same-turn read-only tool call batching (P2-M1 Post Works P2).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import Any
+
+import structlog
+
+from src.agent.events import ToolDenied
+from src.agent.guardrail import GuardCheckResult
+
+logger = structlog.get_logger(__name__)
+_parallel_logger = structlog.get_logger("tool_concurrency")
+
+# Maximum number of tool calls executed concurrently within a single parallel group.
+_MAX_PARALLEL_TOOLS = 3
+
+# Error codes from guardrail.py that indicate a guard denial (not a tool failure).
+_GUARD_DENY_CODES = frozenset({
+    "GUARD_CONTRACT_UNAVAILABLE",
+    "GUARD_ANCHOR_MISSING",
+    "MODE_DENIED",
+})
+
+
+@dataclass
+class _ExecutionGroup:
+    """A batch of tool calls sharing the same execution strategy."""
+
+    tool_calls: list[dict[str, str]]
+    parallel: bool  # True only when ALL tools are read_only + concurrency_safe
+    start_index: int  # original index of the first tool call in the turn
+
+
+@dataclass
+class _ToolOutcome:
+    """Result of a single tool execution, for deferred yield / append."""
+
+    tool_call: dict[str, str]
+    result: dict[str, Any]
+    denied_event: ToolDenied | None = None
+    failure_signal: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Group builder
+# ---------------------------------------------------------------------------
+
+
+def _build_execution_groups(
+    tool_calls: list[dict[str, str]],
+    registry: Any,
+) -> list[_ExecutionGroup]:
+    """Split tool calls into execution groups.
+
+    Consecutive tools that are both read_only AND concurrency_safe form a
+    parallel group.  Any other tool acts as a barrier that flushes the
+    current parallel group and executes alone.
+    """
+    groups: list[_ExecutionGroup] = []
+    pending: list[dict[str, str]] = []
+    pending_start = 0
+
+    for i, tc in enumerate(tool_calls):
+        if _is_parallel_eligible(tc["name"], registry):
+            if not pending:
+                pending_start = i
+            pending.append(tc)
+        else:
+            if pending:
+                groups.append(
+                    _ExecutionGroup(tool_calls=pending, parallel=True, start_index=pending_start)
+                )
+                pending = []
+            groups.append(_ExecutionGroup(tool_calls=[tc], parallel=False, start_index=i))
+
+    if pending:
+        groups.append(
+            _ExecutionGroup(tool_calls=pending, parallel=True, start_index=pending_start)
+        )
+    return groups
+
+
+def _is_parallel_eligible(tool_name: str, registry: Any) -> bool:
+    """Return True only if the tool declares both read_only and concurrency_safe."""
+    if registry is None:
+        return False
+    tool = registry.get(tool_name)
+    if tool is None:
+        return False
+    return tool.is_read_only and tool.is_concurrency_safe
+
+
+# ---------------------------------------------------------------------------
+# Single-tool runner
+# ---------------------------------------------------------------------------
+
+
+def _mode_denial(
+    registry: Any,
+    mode: Any,
+    session_id: str,
+    tool_call: dict[str, str],
+) -> tuple[ToolDenied, dict[str, Any]] | None:
+    """Check if a tool is denied in the current mode."""
+    tool = registry.get(tool_call["name"]) if registry else None
+    if tool is None or registry.check_mode(tool_call["name"], mode):
+        return None
+    logger.warning(
+        "tool_denied_by_mode",
+        tool_name=tool_call["name"],
+        mode=mode.value,
+        session_id=session_id,
+    )
+    message = f"Tool '{tool_call['name']}' is not available in '{mode.value}' mode."
+    next_action = "当前为 chat_safe 模式，代码工具不可用。未来版本将支持 coding 模式。"
+    denied = ToolDenied(
+        tool_name=tool_call["name"],
+        call_id=tool_call["id"],
+        mode=mode.value,
+        error_code="MODE_DENIED",
+        message=message,
+        next_action=next_action,
+    )
+    result = {
+        "ok": False,
+        "error_code": "MODE_DENIED",
+        "tool_name": tool_call["name"],
+        "mode": mode.value,
+        "message": message,
+        "next_action": next_action,
+    }
+    return denied, result
+
+
+async def _run_single_tool(
+    loop: Any,
+    state: Any,
+    tool_call: dict[str, str],
+    guard_state: GuardCheckResult,
+) -> _ToolOutcome:
+    """Execute one tool call and return an outcome without side effects."""
+    denial = _mode_denial(
+        loop._tool_registry, state.mode, state.session_id, tool_call,
+    )
+    if denial is not None:
+        denied_event, result = denial
+        return _ToolOutcome(
+            tool_call=tool_call,
+            result=result,
+            denied_event=denied_event,
+            failure_signal=f"guard_denied:{tool_call['name']}",
+        )
+    result = await loop._execute_tool(
+        tool_call["name"],
+        tool_call["arguments"],
+        scope_key=state.scope_key,
+        session_id=state.session_id,
+        guard_state=guard_state,
+    )
+    failure_signal: str | None = None
+    if isinstance(result, dict) and not result.get("ok", True):
+        error_code = result.get("error_code", "")
+        if error_code in _GUARD_DENY_CODES:
+            failure_signal = f"guard_denied:{tool_call['name']}"
+        else:
+            failure_signal = f"tool_failure:{tool_call['name']}"
+    return _ToolOutcome(
+        tool_call=tool_call,
+        result=result,
+        failure_signal=failure_signal,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parallel / serial executor + observability
+# ---------------------------------------------------------------------------
+
+
+async def _execute_group(
+    loop: Any,
+    state: Any,
+    group: _ExecutionGroup,
+    guard_state: GuardCheckResult,
+    *,
+    session_id: str,
+    iteration: int,
+) -> list[_ToolOutcome]:
+    """Execute all tool calls in a group, returning ordered outcomes."""
+    if group.parallel and len(group.tool_calls) > 1:
+        return await _execute_parallel(
+            loop, state, group, guard_state,
+            session_id=session_id, iteration=iteration,
+        )
+    # Serial: single barrier tool OR single-element parallel group.
+    if not group.parallel:
+        tc = group.tool_calls[0]
+        _parallel_logger.info(
+            "serial_barrier_tool",
+            session_id=session_id,
+            iteration=iteration,
+            tool_index=group.start_index,
+            tool_name=tc["name"],
+            reason="not_parallel_eligible",
+        )
+    outcomes: list[_ToolOutcome] = []
+    for tc in group.tool_calls:
+        outcomes.append(await _run_single_tool(loop, state, tc, guard_state))
+    return outcomes
+
+
+async def _execute_parallel(
+    loop: Any,
+    state: Any,
+    group: _ExecutionGroup,
+    guard_state: GuardCheckResult,
+    *,
+    session_id: str,
+    iteration: int,
+) -> list[_ToolOutcome]:
+    """Execute tool calls concurrently in bounded batches."""
+    tool_calls = group.tool_calls
+    all_outcomes: list[_ToolOutcome] = []
+    tool_names = [tc["name"] for tc in tool_calls]
+    effective_concurrency = min(len(tool_calls), _MAX_PARALLEL_TOOLS)
+
+    _parallel_logger.info(
+        "tool_parallel_group_started",
+        session_id=session_id,
+        iteration=iteration,
+        group_index=group.start_index,
+        group_size=len(tool_calls),
+        max_concurrency=effective_concurrency,
+        tool_names=tool_names,
+    )
+
+    for batch_start in range(0, len(tool_calls), _MAX_PARALLEL_TOOLS):
+        batch = tool_calls[batch_start : batch_start + _MAX_PARALLEL_TOOLS]
+        results: list[_ToolOutcome] = [None] * len(batch)  # type: ignore[list-item]
+        async with asyncio.TaskGroup() as tg:
+            for idx, tc in enumerate(batch):
+                tg.create_task(
+                    _run_and_store(loop, state, tc, guard_state, results, idx)
+                )
+        all_outcomes.extend(results)
+
+    _parallel_logger.info(
+        "tool_parallel_group_finished",
+        session_id=session_id,
+        iteration=iteration,
+        group_index=group.start_index,
+        group_size=len(tool_calls),
+        max_concurrency=effective_concurrency,
+        tool_names=tool_names,
+    )
+    return all_outcomes
+
+
+async def _run_and_store(
+    loop: Any,
+    state: Any,
+    tool_call: dict[str, str],
+    guard_state: GuardCheckResult,
+    results: list[_ToolOutcome],
+    index: int,
+) -> None:
+    """Run a single tool and place the outcome at *index* in *results*."""
+    results[index] = await _run_single_tool(loop, state, tool_call, guard_state)

@@ -34,6 +34,14 @@ class CurrentTimeTool(BaseTool):
         return RiskLevel.low
 
     @property
+    def is_read_only(self) -> bool:
+        return True
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        return True
+
+    @property
     def parameters(self) -> dict:
         return {
             "type": "object",
