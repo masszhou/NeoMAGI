@@ -3,10 +3,10 @@ doc_id: 019d68f2-6384-7d56-a65d-eb0d4de3c82a
 doc_id_format: uuidv7
 doc_id_assigned_at: 2026-04-07T19:16:48.900+02:00
 ---
-# P2-M2a 实施计划：Procedure Runtime Core（草案）
+# P2-M2a 实施计划：Procedure Runtime Core
 
 - Date: 2026-04-07
-- Status: draft
+- Status: approved
 - Scope: 将 `Procedure Runtime` 从设计草案推进为可运行、可持久化、可恢复的最小 deterministic runtime control layer
 - Basis:
   - [`design_docs/phase2/roadmap_milestones_v1.md`](/Users/zhiliangzhou/devel/Zhiliang/NeoMAGI/design_docs/phase2/roadmap_milestones_v1.md)
