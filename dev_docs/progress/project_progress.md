@@ -568,3 +568,19 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Plan: `dev_docs/plans/phase2/p2-m1-post-works-p2_tool-concurrency-metadata_2026-04-06.md`
 - Next: P2-M1 Post Works P3 (atomic coding tools, draft); 之后按 roadmap 进入 P2-M2
 - Risk: 无
+
+## 2026-04-07 (local) | P2-M1 Post Works P3: Atomic Coding Tools (Stage A/B)
+- Status: done
+- Done: 补齐最小 text/coding file transaction surface — coding entry (ADR 0058), read state infrastructure, 5 个 atomic coding tools (read_file upgrade, glob, grep, write_file, edit_file); 3 commits, 24 文件变更 (含 8 新文件); 3 轮 review 修复 7 个 findings (boolean coercion P1, TS build P1, complexity P1, frontend routing P2, glob sort P2, UI entry P2)
+- Detail:
+  - Slice A — Coding Entry: 移除 M1.5 guardrail, 新增 `SessionManager.set_mode()`, WebSocket RPC `session.set_mode`, `ModeToggle.tsx` 最小 UI 入口
+  - Slice B1 — read_file Upgrade: `file_path`/`path` alias, `offset`/`limit`, output truncation, process-local read state tracking, newline-safe I/O
+  - Read State Infrastructure: `ReadState`/`ReadScope`/`ReadStateStore` + `validate_workspace_path` + `coerce_bool` + `resolve_search_dir` (共享模块 `src/tools/read_state.py`)
+  - Slice B2 — glob + grep: `asyncio.to_thread` 非阻塞, `is_concurrency_safe=True`, 有界收集
+  - Slice C — write_file + edit_file: create-only 默认, read-before-write, staleness check (mtime_ns+size), full-read enforcement, exact string match + replace_all
+  - Stage C (bash) 按计划保留为 follow-up
+- Evidence: commits `77f536f`, `3a1650f`, `695e6e7`; `dev_docs/logs/phase2/p2-m1-post-works-p3_acceptance_2026-04-07.md`; 1615 backend + 41 frontend tests passed; `pnpm build` passed
+- Plan: `dev_docs/plans/phase2/p2-m1-post-works-p3_atomic-coding-tools_2026-04-06.md`
+- Decisions: ADR 0058 (coding mode open conditions)
+- Next: 评估 Stage C (bash) follow-up; 之后按 roadmap 进入 P2-M2
+- Risk: ModeToggle UI 路径无专用测试，不阻塞
