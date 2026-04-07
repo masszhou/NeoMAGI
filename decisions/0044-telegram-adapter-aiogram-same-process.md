@@ -1,3 +1,8 @@
+---
+doc_id: 019cadad-9828-7d54-a856-f42264be1df2
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-02T09:32:41+01:00
+---
 # ADR 0044: Telegram Adapter — aiogram 同进程 + per-channel-peer scope
 
 **状态**: accepted

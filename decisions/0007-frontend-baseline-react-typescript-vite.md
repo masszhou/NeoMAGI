@@ -1,3 +1,8 @@
+---
+doc_id: 019c6757-3370-7246-a357-8294981f1c37
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T17:44:54+01:00
+---
 # 0007-frontend-baseline-react-typescript-vite
 
 - Status: accepted

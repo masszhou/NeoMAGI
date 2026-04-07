@@ -1,3 +1,8 @@
+---
+doc_id: 019c8cab-1420-7374-9f30-baf4083c9074
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-23T23:42:28+01:00
+---
 # 0035-runtime-anti-drift-guardrail-hardening-and-risk-gated-fail-closed
 
 - Status: accepted

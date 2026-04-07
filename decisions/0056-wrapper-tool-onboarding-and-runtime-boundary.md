@@ -1,3 +1,8 @@
+---
+doc_id: 019d030d-2f68-73c6-8c34-c62187c5a172
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T23:24:49+01:00
+---
 # 0056-wrapper-tool-onboarding-and-runtime-boundary
 
 - Status: accepted

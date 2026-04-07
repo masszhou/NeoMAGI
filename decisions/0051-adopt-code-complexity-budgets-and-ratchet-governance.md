@@ -1,3 +1,8 @@
+---
+doc_id: 019cd98a-00d0-7288-ac8f-ac5108245403
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-10T21:57:06+01:00
+---
 # 0051-adopt-code-complexity-budgets-and-ratchet-governance
 
 - Status: accepted

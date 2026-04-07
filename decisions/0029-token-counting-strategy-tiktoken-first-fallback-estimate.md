@@ -1,3 +1,8 @@
+---
+doc_id: 019c8220-d620-7ee9-ab84-1689892920c3
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-21T22:35:16+01:00
+---
 # 0029-token-counting-strategy-tiktoken-first-fallback-estimate
 
 - Status: accepted

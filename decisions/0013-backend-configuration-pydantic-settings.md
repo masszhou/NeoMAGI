@@ -1,3 +1,8 @@
+---
+doc_id: 019c6757-3370-7507-bc22-79e3a2bb1cd4
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T17:44:54+01:00
+---
 # 0013-backend-configuration-pydantic-settings
 
 - Status: accepted

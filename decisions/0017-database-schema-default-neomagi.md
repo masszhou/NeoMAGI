@@ -1,3 +1,8 @@
+---
+doc_id: 019c6e0d-9998-75c6-a05c-9f7392331fa5
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-18T01:01:51+01:00
+---
 # 0017-database-schema-default-neomagi
 
 - Status: accepted

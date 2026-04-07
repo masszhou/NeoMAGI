@@ -1,3 +1,8 @@
+---
+doc_id: 019d68bb-7950-7b46-84f2-898fd7508f93
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T18:16:50+02:00
+---
 # Decision Index
 
 M0 使用轻量决策日志（ADR-lite）：关键取舍可追溯，文档保持简短。

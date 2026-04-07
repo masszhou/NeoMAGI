@@ -1,3 +1,8 @@
+---
+doc_id: 019c6784-a058-7927-8cad-88a35f48610f
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T18:34:31+01:00
+---
 # 0016-model-sdk-strategy-openai-sdk-unified-v1
 
 - Status: accepted

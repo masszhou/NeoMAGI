@@ -1,3 +1,8 @@
+---
+doc_id: 019cc2b0-2268-7938-8dce-f2122ffc1a6b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T11:27:29+01:00
+---
 # 0049-growth-governance-kernel-adapter-first
 
 - Status: accepted

@@ -1,3 +1,8 @@
+---
+doc_id: 019c7d3d-99b8-77c0-a42b-4f0043a953f0
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-20T23:48:35+01:00
+---
 # 0026-session-mode-storage-and-propagation
 
 - Status: accepted

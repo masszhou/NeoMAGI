@@ -1,3 +1,8 @@
+---
+doc_id: 019c6757-3370-7ac7-9d29-f719b3656bd7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T17:44:54+01:00
+---
 # 0011-frontend-package-manager-pnpm-with-just-entrypoints
 
 - Status: accepted

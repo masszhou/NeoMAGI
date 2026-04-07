@@ -1,3 +1,8 @@
+---
+doc_id: 019cc032-e598-7892-a9b6-9808e435fabd
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T23:51:27+01:00
+---
 # 0047-neomagi-multi-agent-single-soul-execution-units
 
 - Status: accepted

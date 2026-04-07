@@ -1,3 +1,8 @@
+---
+doc_id: 019cf8bb-6e58-7941-96b7-10214caebe63
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-16T23:19:19+01:00
+---
 # 0054-growth-eval-contracts-immutable-and-object-scoped
 
 - Status: accepted

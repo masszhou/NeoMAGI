@@ -1,3 +1,8 @@
+---
+doc_id: 019c9568-94e8-7699-a21e-7b0757886dd8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-25T16:26:25+01:00
+---
 # 0041-m6-budget-gate-concurrency-semantics-all-provider-multi-worker-safe
 
 - Status: accepted

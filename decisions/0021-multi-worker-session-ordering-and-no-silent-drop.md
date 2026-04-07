@@ -1,3 +1,8 @@
+---
+doc_id: 019c726d-cb20-72af-a8c3-5c67c3713a91
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-18T21:25:24+01:00
+---
 # 0021-multi-worker-session-ordering-and-no-silent-drop
 
 - Status: accepted

@@ -1,3 +1,8 @@
+---
+doc_id: 019c8220-d620-7184-a192-1d11b7b8edf5
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-21T22:35:16+01:00
+---
 # 0028-compaction-summary-model-strategy-for-m2
 
 - Status: accepted

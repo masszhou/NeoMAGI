@@ -39,7 +39,7 @@ neomagi/
 
 ## 文档 ID 规则
 
-- `design_docs/` 和 `dev_docs/` 下的所有 `.md` 文件必须有 UUIDv7 frontmatter：
+- `design_docs/`、`dev_docs/` 和 `decisions/` 下的所有 `.md` 文件必须有 UUIDv7 frontmatter：
   ```yaml
   ---
   doc_id: 019d6457-9290-7dda-...

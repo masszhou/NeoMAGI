@@ -1,3 +1,8 @@
+---
+doc_id: 019c9040-ba18-7b9c-af86-dcde978b6066
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-24T16:24:47+01:00
+---
 # 0039-openai-primary-development-test-model-gpt-5-mini
 
 - Status: accepted

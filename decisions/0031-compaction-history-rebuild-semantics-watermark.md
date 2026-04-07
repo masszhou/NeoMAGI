@@ -1,3 +1,8 @@
+---
+doc_id: 019c8256-bb00-7b0f-a31a-5f8d93f608f3
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-21T23:34:08+01:00
+---
 # 0031-compaction-history-rebuild-semantics-watermark
 
 - Status: accepted

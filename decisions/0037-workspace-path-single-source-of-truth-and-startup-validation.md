@@ -1,3 +1,8 @@
+---
+doc_id: 019c8f9d-9478-750e-884c-609ef148ffa7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-24T13:26:35+01:00
+---
 # 0037-workspace-path-single-source-of-truth-and-startup-validation
 
 - Status: accepted

@@ -1,3 +1,8 @@
+---
+doc_id: 019c8f9d-9478-72e5-ab12-5bf0bec2a5b2
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-24T13:26:35+01:00
+---
 # 0036-evolution-consistency-db-as-ssot-and-soulmd-as-projection
 
 - Status: accepted

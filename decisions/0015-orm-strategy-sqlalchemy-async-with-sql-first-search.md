@@ -1,3 +1,8 @@
+---
+doc_id: 019c6784-a058-7a89-b3e9-2ac08d06658c
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T18:34:31+01:00
+---
 # 0015-orm-strategy-sqlalchemy-async-with-sql-first-search
 
 - Status: accepted

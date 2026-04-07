@@ -1,3 +1,8 @@
+---
+doc_id: 019c6757-3370-70b7-86a7-8ac5377ec11d
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T17:44:54+01:00
+---
 # 0008-frontend-ui-system-tailwind-shadcn
 
 - Status: accepted

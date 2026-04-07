@@ -1,3 +1,8 @@
+---
+doc_id: 019c7175-9fe0-73c3-a694-991a4e4b5db7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-18T16:54:20+01:00
+---
 # 0020-database-hard-dependency-fail-fast
 
 - Status: accepted

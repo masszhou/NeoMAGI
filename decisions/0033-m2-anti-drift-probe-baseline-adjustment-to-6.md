@@ -1,3 +1,8 @@
+---
+doc_id: 019c876d-b198-7f06-b8f6-53e5d4c1eb1b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-22T23:17:19+01:00
+---
 # 0033-m2-anti-drift-probe-baseline-adjustment-to-6
 
 - Status: accepted

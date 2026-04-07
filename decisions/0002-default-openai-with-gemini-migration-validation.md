@@ -1,3 +1,8 @@
+---
+doc_id: 019c66f0-cc98-721d-8e7a-7b3617d1694d
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T15:53:03+01:00
+---
 # 0002-default-openai-with-gemini-migration-validation
 
 - Status: accepted

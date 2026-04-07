@@ -1,3 +1,8 @@
+---
+doc_id: 019d030d-2f68-7878-a6b9-1e1c84df0f6a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T23:24:49+01:00
+---
 # 0057-freeze-only-hard-to-remediate-foundations
 
 - Status: accepted

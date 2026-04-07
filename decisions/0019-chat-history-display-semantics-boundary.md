@@ -1,3 +1,8 @@
+---
+doc_id: 019c7175-9fe0-7ff3-8490-c5d90b4c4daf
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-18T16:54:20+01:00
+---
 # 0019-chat-history-display-semantics-boundary
 
 - Status: accepted

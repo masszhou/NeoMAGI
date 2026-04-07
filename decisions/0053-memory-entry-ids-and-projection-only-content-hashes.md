@@ -1,3 +1,8 @@
+---
+doc_id: 019cfb15-5060-7baa-ad9e-8eea63cc674a
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-17T10:16:44+01:00
+---
 # 0053-memory-entry-ids-and-projection-only-content-hashes
 
 - Status: accepted

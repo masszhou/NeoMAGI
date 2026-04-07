@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7473-82b9-1a9149dab092
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # 0034-openclaw-dmscope-session-and-memory-scope-alignment
 
 - Status: accepted

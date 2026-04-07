@@ -1,3 +1,8 @@
+---
+doc_id: 019cc971-0428-791c-87e4-40254f6a07c7
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T18:55:53+01:00
+---
 # 0048-skill-objects-as-runtime-experience-layer
 
 - Status: accepted

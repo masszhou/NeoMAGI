@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7732-8fd2-f1548e3d757e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # 0027-partner-agent-self-evolution-guardrails
 
 - Status: accepted

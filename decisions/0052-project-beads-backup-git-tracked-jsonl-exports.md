@@ -1,3 +1,8 @@
+---
+doc_id: 019cd49b-d3a0-7ce4-bc58-6e9081727741
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-09T22:58:28+01:00
+---
 # 0052-project-beads-backup-git-tracked-jsonl-exports
 
 - Status: accepted

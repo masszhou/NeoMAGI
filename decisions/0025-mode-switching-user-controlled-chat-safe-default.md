@@ -1,3 +1,8 @@
+---
+doc_id: 019c7c85-1f28-762d-a1e2-7137776f629e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-20T20:27:05+01:00
+---
 # 0025-mode-switching-user-controlled-chat-safe-default
 
 - Status: accepted

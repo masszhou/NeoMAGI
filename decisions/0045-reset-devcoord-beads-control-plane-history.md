@@ -1,3 +1,8 @@
+---
+doc_id: 019cc283-4608-72bb-85b6-32f5297422e6
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-06T10:38:29+01:00
+---
 # 0045-reset-devcoord-beads-control-plane-history
 
 - Status: accepted

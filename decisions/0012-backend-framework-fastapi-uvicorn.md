@@ -1,3 +1,8 @@
+---
+doc_id: 019c6757-3370-7c10-a5e6-aaf7f4b550b0
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T17:44:54+01:00
+---
 # 0012-backend-framework-fastapi-uvicorn
 
 - Status: accepted

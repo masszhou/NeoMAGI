@@ -1,3 +1,8 @@
+---
+doc_id: 019d677e-03c8-750f-b8ad-ba5e3cfebe00
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T12:30:05+02:00
+---
 # 0058-coding-mode-open-conditions
 
 - Status: accepted

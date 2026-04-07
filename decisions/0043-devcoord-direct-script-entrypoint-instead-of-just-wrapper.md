@@ -1,3 +1,8 @@
+---
+doc_id: 019ca967-0d08-76eb-8168-03c0954939f4
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-01T13:37:09+01:00
+---
 # 0043-devcoord-direct-script-entrypoint-instead-of-just-wrapper
 
 - Status: accepted

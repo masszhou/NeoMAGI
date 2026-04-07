@@ -1,3 +1,8 @@
+---
+doc_id: 019c66f0-cc98-78e0-931e-20710c075c41
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T15:53:03+01:00
+---
 # 0005-use-just-as-command-runner
 
 - Status: accepted

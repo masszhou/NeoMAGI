@@ -1,3 +1,8 @@
+---
+doc_id: 019d68d3-2bb8-7393-910f-7c2a63a0b79f
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-04-07T18:42:43+02:00
+---
 # 0059-shared-companion-relationship-space-boundary
 
 - Status: accepted

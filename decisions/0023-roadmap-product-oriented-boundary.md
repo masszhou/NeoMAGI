@@ -1,3 +1,8 @@
+---
+doc_id: 019c7847-fe30-7369-b5f7-75f4479f4423
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-20T00:41:50+01:00
+---
 # 0023-roadmap-product-oriented-boundary
 
 - Status: accepted

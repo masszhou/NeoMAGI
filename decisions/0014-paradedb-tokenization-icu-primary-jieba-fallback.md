@@ -1,3 +1,8 @@
+---
+doc_id: 019cbfbe-bf38-7983-8b72-efe0d3a9d07e
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T21:44:35+01:00
+---
 # 0014-paradedb-tokenization-icu-primary-jieba-fallback
 
 - Status: accepted

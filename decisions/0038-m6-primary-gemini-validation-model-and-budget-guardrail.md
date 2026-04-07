@@ -1,3 +1,8 @@
+---
+doc_id: 019c9031-b658-78a6-9c0e-d0531dca27f0
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-24T16:08:23+01:00
+---
 # 0038-m6-primary-gemini-validation-model-and-budget-guardrail
 
 - Status: accepted

@@ -1,4 +1,4 @@
-"""Assign UUIDv7 doc_id frontmatter to markdown files in design_docs/ and dev_docs/.
+"""Assign UUIDv7 doc_id frontmatter to markdown files in design_docs/, dev_docs/, and decisions/.
 
 Both UUIDv7 timestamp and doc_id_assigned_at are derived from each file's
 last git commit time. UUIDv7 is for machines, assigned_at is for humans.
@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-TARGETS = ["design_docs", "dev_docs"]
+TARGETS = ["design_docs", "dev_docs", "decisions"]
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 

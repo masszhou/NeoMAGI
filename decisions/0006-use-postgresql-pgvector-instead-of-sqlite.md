@@ -1,3 +1,8 @@
+---
+doc_id: 019cbfbe-bf38-7396-b44a-214182f8ecc6
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T21:44:35+01:00
+---
 # 0006-use-postgresql-pgvector-instead-of-sqlite
 
 - Status: superseded by 0046

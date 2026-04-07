@@ -1,3 +1,8 @@
+---
+doc_id: 019cc8f4-0bf8-7d49-bd84-9e88d578c72b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-07T16:39:23+01:00
+---
 # 0050-devcoord-decouple-from-beads-and-use-sqlite-control-plane-store
 
 - Status: accepted

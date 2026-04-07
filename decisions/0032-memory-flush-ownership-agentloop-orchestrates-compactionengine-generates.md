@@ -1,3 +1,8 @@
+---
+doc_id: 019c8220-d620-72d3-9802-0f88cdce1e4d
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-21T22:35:16+01:00
+---
 # 0032-memory-flush-ownership-agentloop-orchestrates-compactionengine-generates
 
 - Status: accepted

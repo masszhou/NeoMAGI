@@ -1,3 +1,8 @@
+---
+doc_id: 019c66f0-cc98-7e60-8e6a-6b0f878e4cc8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T15:53:03+01:00
+---
 # 0003-channel-baseline-webchat-first-telegram-second
 
 - Status: accepted

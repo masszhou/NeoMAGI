@@ -1,3 +1,8 @@
+---
+doc_id: 019c8256-bb00-7242-a2f4-b2f0b164b2b5
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-21T23:34:08+01:00
+---
 # 0030-m2-anti-drift-baseline-scope-compaction-preserves-anchors
 
 - Status: accepted

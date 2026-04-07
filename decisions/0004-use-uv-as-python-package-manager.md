@@ -1,3 +1,8 @@
+---
+doc_id: 019c66f0-cc98-77dd-8395-e22f64af0bd8
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T15:53:03+01:00
+---
 # 0004-use-uv-as-python-package-manager
 
 - Status: accepted

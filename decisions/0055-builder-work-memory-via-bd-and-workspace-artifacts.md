@@ -1,3 +1,8 @@
+---
+doc_id: 019d030d-2f68-7e8a-bc38-e27181bf2cc4
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-18T23:24:49+01:00
+---
 # 0055-builder-work-memory-via-bd-and-workspace-artifacts
 
 - Status: accepted

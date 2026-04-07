@@ -1,3 +1,8 @@
+---
+doc_id: 019cbfbe-bf38-7b8a-a488-0174a999a5c3
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T21:44:35+01:00
+---
 # 0046-upgrade-database-baseline-to-postgresql-17
 
 - Status: accepted

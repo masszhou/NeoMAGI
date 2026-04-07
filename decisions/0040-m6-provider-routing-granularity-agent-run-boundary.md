@@ -1,3 +1,8 @@
+---
+doc_id: 019cbff3-38d0-7cfc-952a-da2a726bd71b
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-03-05T22:41:54+01:00
+---
 # 0040-m6-provider-routing-granularity-agent-run-boundary
 
 - Status: accepted

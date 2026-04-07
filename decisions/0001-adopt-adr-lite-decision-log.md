@@ -1,3 +1,8 @@
+---
+doc_id: 019c66f0-cc98-7958-b046-fa5b399b9858
+doc_id_format: uuidv7
+doc_id_assigned_at: 2026-02-16T15:53:03+01:00
+---
 # 0001-adopt-adr-lite-decision-log
 
 - Status: accepted
