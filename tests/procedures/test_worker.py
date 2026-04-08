@@ -77,6 +77,11 @@ class _EchoTool(BaseTool):
     def is_read_only(self) -> bool:
         return True
 
+    @property
+    def risk_level(self):
+        from src.tools.base import RiskLevel
+        return RiskLevel.low
+
     async def execute(self, arguments: dict, context=None) -> dict:
         return {"echoed": arguments.get("text", "")}
 
@@ -244,6 +249,55 @@ class TestWorkerExecutorToolRejection:
         assert result.ok is True
 
 
+class TestWorkerHighRiskExclusion:
+    @pytest.mark.asyncio
+    async def test_high_risk_tool_excluded_from_worker(self):
+        """High-risk tools must not be available to workers (guardrail bypass)."""
+
+        class _HighRiskTool(BaseTool):
+            @property
+            def name(self) -> str:
+                return "high_risk_write"
+
+            @property
+            def description(self) -> str:
+                return "Writes files"
+
+            @property
+            def parameters(self) -> dict:
+                return {"type": "object", "properties": {}}
+
+            @property
+            def group(self) -> ToolGroup:
+                return ToolGroup.code
+
+            @property
+            def allowed_modes(self) -> frozenset[ToolMode]:
+                return frozenset({ToolMode.coding})
+
+            @property
+            def risk_level(self):
+                from src.tools.base import RiskLevel
+                return RiskLevel.high
+
+            async def execute(self, arguments: dict, context=None) -> dict:
+                return {"written": True}
+
+        client = _FakeModelClient([
+            _FakeChatMessage(
+                content="",
+                tool_calls=[{"id": "tc1", "name": "high_risk_write", "arguments": "{}"}],
+            ),
+            _FakeChatMessage(content='{"done": true}'),
+        ])
+        reg = _make_registry(_EchoTool(), _HighRiskTool())
+        executor = WorkerExecutor(client, reg, _worker_role(), model="test")
+        result = await executor.execute(_make_packet())
+        # high_risk_write should be rejected (not in allowed tools)
+        # worker recovers on second call
+        assert result.ok is True
+
+
 class TestWorkerExecutorModelError:
     @pytest.mark.asyncio
     async def test_model_timeout(self):
@@ -281,6 +335,11 @@ class TestWorkerToolContextInjection:
             @property
             def allowed_modes(self) -> frozenset[ToolMode]:
                 return frozenset({ToolMode.coding})
+
+            @property
+            def risk_level(self):
+                from src.tools.base import RiskLevel
+                return RiskLevel.low
 
             async def execute(self, arguments: dict, context=None) -> dict:
                 received_contexts.append(context)

@@ -203,14 +203,26 @@ class WorkerExecutor:
     # -----------------------------------------------------------------------
 
     def _build_allowed_tools(self) -> dict[str, BaseTool]:
-        """Filter registry to tools allowed for this role."""
+        """Filter registry to tools allowed for this role.
+
+        Triple filter:
+        1. Only groups in role_spec.allowed_tool_groups
+        2. Exclude is_procedure_only tools (D7)
+        3. Exclude RiskLevel.high tools — workers bypass the normal
+           check_pre_tool_guard path, so high-risk tools must be excluded
+           at schema level to prevent unguarded writes
+        """
+        from src.tools.base import RiskLevel, ToolMode
+
         result: dict[str, BaseTool] = {}
         for group in self._role_spec.allowed_tool_groups:
             for mode in ("chat_safe", "coding"):
-                from src.tools.base import ToolMode
-
                 for tool in self._tool_registry.list_tools(ToolMode(mode)):
-                    if tool.group == group and not tool.is_procedure_only:
+                    if (
+                        tool.group == group
+                        and not tool.is_procedure_only
+                        and tool.risk_level != RiskLevel.high
+                    ):
                         result[tool.name] = tool
         return result
 
