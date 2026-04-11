@@ -21,6 +21,10 @@ _parallel_logger = structlog.get_logger("tool_concurrency")
 # Maximum number of tool calls executed concurrently within a single parallel group.
 _MAX_PARALLEL_TOOLS = 3
 
+# OI-M2-04 hotfix: per-request limit for the same non-read-only tool.
+# Allows 3 executions; the 4th is rejected.
+WRITE_TOOL_REQUEST_LIMIT = 3
+
 # Error codes from guardrail.py that indicate a guard denial (not a tool failure).
 _GUARD_DENY_CODES = frozenset({
     "GUARD_CONTRACT_UNAVAILABLE",
@@ -167,6 +171,34 @@ async def _run_single_tool(
     # ── Procedure action routing (P2-M2a) ──
     if state.procedure_action_map and tool_call["name"] in state.procedure_action_map:
         return await _run_procedure_action(loop, state, tool_call, guard_state)
+
+    # ── Write tool circuit breaker (OI-M2-04 hotfix) ──
+    tool_name = tool_call["name"]
+    tool_obj = loop._tool_registry.get(tool_name) if loop._tool_registry else None
+    if tool_obj is not None and not tool_obj.is_read_only:
+        count = state.write_tool_counts.get(tool_name, 0)
+        if count >= WRITE_TOOL_REQUEST_LIMIT:
+            logger.info(
+                "write_tool_request_limit",
+                tool_name=tool_name,
+                count=count,
+                limit=WRITE_TOOL_REQUEST_LIMIT,
+                session_id=state.session_id,
+            )
+            return _ToolOutcome(
+                tool_call=tool_call,
+                result={
+                    "ok": False,
+                    "error_code": "WRITE_TOOL_REQUEST_LIMIT",
+                    "detail": (
+                        f"Tool '{tool_name}' already executed "
+                        f"{WRITE_TOOL_REQUEST_LIMIT} times in this request. "
+                        "Stop and respond to the user in text."
+                    ),
+                },
+                failure_signal=f"tool_failure:{tool_name}",
+            )
+        state.write_tool_counts[tool_name] = count + 1
 
     denial = _mode_denial(
         loop._tool_registry, state.mode, state.session_id, tool_call,

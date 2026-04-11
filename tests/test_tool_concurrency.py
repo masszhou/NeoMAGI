@@ -144,6 +144,8 @@ def _make_state(session_id: str = "test-session") -> MagicMock:
     state.lock_token = "tok"
     state.mode = ToolMode.chat_safe
     state.accumulated_failure_signals = []
+    state.procedure_action_map = {}
+    state.write_tool_counts = {}
     return state
 
 
@@ -629,3 +631,98 @@ class TestMaxParallelToolsConstant:
 
     def test_value(self):
         assert _MAX_PARALLEL_TOOLS == 3
+
+
+# ===========================================================================
+# OI-M2-04 Hotfix: Write tool request-level circuit breaker
+# ===========================================================================
+
+
+class TestWriteToolRequestLimit:
+    """Per-request limit on the same non-read-only tool (OI-M2-04)."""
+
+    @pytest.mark.asyncio
+    async def test_write_tool_request_limit_triggered(self):
+        """Same write tool executed 3 times OK; 4th is rejected."""
+        write_tool = _StubTool("memory_append", read_only=False)
+        reg = _make_registry(write_tool)
+        loop = _make_loop(reg)
+        state = _make_state()
+
+        for i in range(3):
+            outcome = await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+            assert outcome.result.get("ok", True) is True, f"call {i+1} should succeed"
+
+        outcome = await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+        assert outcome.result["ok"] is False
+        assert outcome.result["error_code"] == "WRITE_TOOL_REQUEST_LIMIT"
+        assert outcome.failure_signal == "tool_failure:memory_append"
+
+    @pytest.mark.asyncio
+    async def test_write_tool_interleaved_with_readonly(self):
+        """Read-only tools don't count; write tool accumulates across interleaving."""
+        write_tool = _StubTool("memory_append", read_only=False)
+        read_tool = _StubTool("current_time", read_only=True)
+        reg = _make_registry(write_tool, read_tool)
+        loop = _make_loop(reg)
+        state = _make_state()
+
+        # write, read, write, read, write (3 writes OK), write (4th rejected)
+        await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+        await _run_single_tool(loop, state, _tc("current_time"), _passed_guard())
+        await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+        await _run_single_tool(loop, state, _tc("current_time"), _passed_guard())
+        outcome3 = await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+        assert outcome3.result.get("ok", True) is True  # 3rd write OK
+
+        outcome4 = await _run_single_tool(loop, state, _tc("memory_append"), _passed_guard())
+        assert outcome4.result["ok"] is False
+        assert outcome4.result["error_code"] == "WRITE_TOOL_REQUEST_LIMIT"
+
+    @pytest.mark.asyncio
+    async def test_write_tool_different_tools_independent(self):
+        """Different write tools have independent counters."""
+        tool_a = _StubTool("tool_a", read_only=False)
+        tool_b = _StubTool("tool_b", read_only=False)
+        reg = _make_registry(tool_a, tool_b)
+        loop = _make_loop(reg)
+        state = _make_state()
+
+        for _ in range(3):
+            await _run_single_tool(loop, state, _tc("tool_a"), _passed_guard())
+            await _run_single_tool(loop, state, _tc("tool_b"), _passed_guard())
+
+        # 4th call to each: both rejected independently
+        outcome_a = await _run_single_tool(loop, state, _tc("tool_a"), _passed_guard())
+        assert outcome_a.result["error_code"] == "WRITE_TOOL_REQUEST_LIMIT"
+        outcome_b = await _run_single_tool(loop, state, _tc("tool_b"), _passed_guard())
+        assert outcome_b.result["error_code"] == "WRITE_TOOL_REQUEST_LIMIT"
+
+    @pytest.mark.asyncio
+    async def test_read_only_tool_not_limited(self):
+        """Read-only tools are never limited."""
+        read_tool = _StubTool("current_time", read_only=True)
+        reg = _make_registry(read_tool)
+        loop = _make_loop(reg)
+        state = _make_state()
+
+        for _ in range(10):
+            outcome = await _run_single_tool(loop, state, _tc("current_time"), _passed_guard())
+            assert outcome.result.get("ok", True) is True
+
+    @pytest.mark.asyncio
+    async def test_procedure_action_not_limited(self):
+        """Procedure actions bypass the circuit breaker entirely."""
+        write_tool = _StubTool("memory_append", read_only=False)
+        reg = _make_registry(write_tool)
+        loop = _make_loop(reg)
+        state = _make_state()
+        # Simulate a procedure action by putting it in the action map
+        state.procedure_action_map = {"do_something": "action_spec"}
+        # Procedure action branch requires _procedure_runtime on loop
+        loop._procedure_runtime = None  # will hit early return, but NOT the breaker
+
+        outcome = await _run_single_tool(loop, state, _tc("do_something"), _passed_guard())
+        # The procedure action path returns PROCEDURE_UNKNOWN (no runtime),
+        # but it never hits the write tool breaker
+        assert outcome.result.get("error_code") != "WRITE_TOOL_REQUEST_LIMIT"

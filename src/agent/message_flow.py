@@ -45,12 +45,16 @@ class RequestState:
     active_procedure: Any = None  # ActiveProcedure | None
     procedure_view: Any = None  # ProcedureView | None
     procedure_action_map: dict = None  # type: ignore[assignment]  # action_id -> ActionSpec
+    # ── write tool circuit breaker (OI-M2-04 hotfix) ──
+    write_tool_counts: dict = None  # type: ignore[assignment]  # tool_name -> int
 
     def __post_init__(self) -> None:
         if self.accumulated_failure_signals is None:
             self.accumulated_failure_signals = []
         if self.procedure_action_map is None:
             self.procedure_action_map = {}
+        if self.write_tool_counts is None:
+            self.write_tool_counts = {}
 
 
 @dataclass
