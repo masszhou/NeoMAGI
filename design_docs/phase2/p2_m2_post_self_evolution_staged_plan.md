@@ -1,7 +1,7 @@
 ---
-doc_id: 019d6c2c-f782-74fe-84e7-da09b8248d66
+doc_id: 019d7d57-48b7-763e-953e-260ca0e5ef09
 doc_id_format: uuidv7
-doc_id_assigned_at: 2026-04-08T08:19:39+00:00
+doc_id_assigned_at: 2026-04-11T18:19:25+02:00
 ---
 # P2-M2 Post / P3 Self-Evolution 分阶段计划（提案）
 
