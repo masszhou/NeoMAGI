@@ -168,6 +168,39 @@ class TestPublishTool:
         assert result["context_patch"]["val"] == 1
 
     @pytest.mark.asyncio
+    async def test_publish_empty_merge_keys_fail_closed(self):
+        """Empty merge_keys → ok=False, staging preserved."""
+        tool = PublishTool()
+        active = _active_with_staging(handoffs={"h1": {"result": {"answer": 42}}})
+        ctx = ToolContext(actor=AgentRole.primary, procedure_deps=_deps(active))
+        result = await tool.execute(
+            {"handoff_id": "h1", "merge_keys": []},
+            context=ctx,
+        )
+        assert result["ok"] is False
+        assert result["error_code"] == "PUBLISH_EMPTY_MERGE_KEYS"
+        assert "answer" in result["available_keys"]
+        assert result["handoff_id"] == "h1"
+        # staging not modified — no context_patch returned
+        assert "context_patch" not in result
+
+    @pytest.mark.asyncio
+    async def test_publish_no_keys_matched_preserves_staging(self):
+        """All merge_keys miss → ok=False, staging preserved."""
+        tool = PublishTool()
+        active = _active_with_staging(handoffs={"h1": {"result": {"answer": 42}}})
+        ctx = ToolContext(actor=AgentRole.primary, procedure_deps=_deps(active))
+        result = await tool.execute(
+            {"handoff_id": "h1", "merge_keys": ["nonexistent"]},
+            context=ctx,
+        )
+        assert result["ok"] is False
+        assert result["error_code"] == "PUBLISH_NO_KEYS_MATCHED"
+        assert "answer" in result["available_keys"]
+        assert result["handoff_id"] == "h1"
+        assert "context_patch" not in result
+
+    @pytest.mark.asyncio
     async def test_preserves_other_handoffs(self):
         tool = PublishTool()
         active = _active_with_staging(handoffs={

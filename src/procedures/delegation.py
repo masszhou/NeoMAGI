@@ -190,5 +190,6 @@ class DelegationTool(BaseTool):
             "handoff_id": packet.handoff_id,
             "worker_ok": True,
             "iterations_used": worker_result.iterations_used,
+            "available_keys": list(worker_result.result.keys()),
             "context_patch": {"_pending_handoffs": current_handoffs},
         }

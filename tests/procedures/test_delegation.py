@@ -140,6 +140,16 @@ class TestDelegationTool:
         assert result["ok"] is False
         assert result["error_code"] == "DELEGATION_PACKET_ERROR"
 
+    @pytest.mark.asyncio
+    async def test_delegation_returns_available_keys(self):
+        tool = DelegationTool(tool_registry=ToolRegistry())
+        deps = _make_deps()
+        ctx = ToolContext(actor=AgentRole.primary, procedure_deps=deps)
+        result = await tool.execute({"task_brief": "compute something"}, context=ctx)
+        assert result["ok"] is True
+        assert "available_keys" in result
+        assert isinstance(result["available_keys"], list)
+
 
 # ---------------------------------------------------------------------------
 # D7 mode bypass in ProcedureRuntime

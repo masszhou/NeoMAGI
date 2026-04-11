@@ -130,8 +130,29 @@ class PublishTool(BaseTool):
                 "detail": f"Review for handoff '{handoff_id}' not approved",
             }
 
-        # Merge worker result keys into visible context
+        # Fail-closed: empty merge_keys or zero matches → reject, preserve staging
+        source = worker_data.get("result", worker_data)
+        available_keys = list(source.keys()) if isinstance(source, dict) else []
+
+        if not merge_keys:
+            return {
+                "ok": False,
+                "error_code": "PUBLISH_EMPTY_MERGE_KEYS",
+                "detail": "merge_keys must not be empty",
+                "available_keys": available_keys,
+                "handoff_id": handoff_id,
+            }
+
         visible_patch = merge_worker_result(worker_data, merge_keys, proc_ctx)
+
+        if not visible_patch:
+            return {
+                "ok": False,
+                "error_code": "PUBLISH_NO_KEYS_MATCHED",
+                "detail": f"None of {list(merge_keys)} found in worker result",
+                "available_keys": available_keys,
+                "handoff_id": handoff_id,
+            }
 
         # Remove published handoff from staging (read-modify-write)
         del pending[handoff_id]
