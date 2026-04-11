@@ -204,6 +204,62 @@ def _check_scope_claim_consistency(
 # ---------------------------------------------------------------------------
 
 
+def _eval_early_return(record, version: int, contract) -> GrowthEvalResult | None:
+    """Return early-exit eval result if record is missing or not proposed."""
+    if record is None:
+        return GrowthEvalResult(
+            passed=False,
+            summary=f"Governance version {version} not found",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+    if record.status != GrowthLifecycleStatus.proposed:
+        return GrowthEvalResult(
+            passed=False,
+            summary=f"Version {version} is '{record.status}', not 'proposed'",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+    return None
+
+
+def _parse_spec_from_record(record, contract) -> ProcedureSpec | GrowthEvalResult:
+    """Parse ProcedureSpec from proposal payload; return EvalResult on failure."""
+    payload = record.proposal.get("payload", {})
+    try:
+        return ProcedureSpec.model_validate(payload.get("procedure_spec", {}))
+    except Exception as exc:
+        return GrowthEvalResult(
+            passed=False,
+            checks=[{"name": "transition_determinism", "passed": False,
+                     "detail": f"Payload parse error: {exc}"}],
+            summary=f"Payload parse error: {exc}",
+            contract_id=contract.contract_id,
+            contract_version=contract.version,
+        )
+
+
+def _run_eval_checks(spec, tool_registry, guard_registry, context_registry, contract):
+    """Run 5 deterministic eval checks and return the composite result."""
+    checks = [
+        _check_transition_determinism(spec),
+        _check_guard_completeness(spec, guard_registry),
+        _check_interrupt_resume_safety(spec),
+        _check_checkpoint_recoverability(spec, tool_registry),
+        _check_scope_claim_consistency(spec, context_registry),
+    ]
+    passed = all(c["passed"] for c in checks)
+    summary = (
+        "All checks passed"
+        if passed
+        else "Failed: " + ", ".join(c["name"] for c in checks if not c["passed"])
+    )
+    return GrowthEvalResult(
+        passed=passed, checks=checks, summary=summary,
+        contract_id=contract.contract_id, contract_version=contract.version,
+    )
+
+
 class ProcedureSpecGovernedObjectAdapter:
     """Adapter connecting procedure_spec to the growth governance kernel.
 
@@ -284,61 +340,18 @@ class ProcedureSpecGovernedObjectAdapter:
         contract = self._contract
         record = await self._store.get_proposal(version)
 
-        # Early exit: missing or not proposed
-        if record is None:
-            return GrowthEvalResult(
-                passed=False,
-                summary=f"Governance version {version} not found",
-                contract_id=contract.contract_id,
-                contract_version=contract.version,
-            )
-        if record.status != GrowthLifecycleStatus.proposed:
-            return GrowthEvalResult(
-                passed=False,
-                summary=f"Version {version} is '{record.status}', not 'proposed'",
-                contract_id=contract.contract_id,
-                contract_version=contract.version,
-            )
+        early = _eval_early_return(record, version, contract)
+        if early is not None:
+            return early
 
-        # Parse ProcedureSpec from payload
-        payload = record.proposal.get("payload", {})
-        try:
-            spec = ProcedureSpec.model_validate(payload.get("procedure_spec", {}))
-        except Exception as exc:
-            return GrowthEvalResult(
-                passed=False,
-                checks=[
-                    {
-                        "name": "transition_determinism",
-                        "passed": False,
-                        "detail": f"Payload parse error: {exc}",
-                    }
-                ],
-                summary=f"Payload parse error: {exc}",
-                contract_id=contract.contract_id,
-                contract_version=contract.version,
-            )
+        assert record is not None  # guaranteed by _eval_early_return
+        parsed = _parse_spec_from_record(record, contract)
+        if isinstance(parsed, GrowthEvalResult):
+            return parsed
 
-        # Run 5 deterministic checks
-        checks = [
-            _check_transition_determinism(spec),
-            _check_guard_completeness(spec, self._guard_registry),
-            _check_interrupt_resume_safety(spec),
-            _check_checkpoint_recoverability(spec, self._tool_registry),
-            _check_scope_claim_consistency(spec, self._context_registry),
-        ]
-        passed = all(c["passed"] for c in checks)
-        summary = (
-            "All checks passed"
-            if passed
-            else "Failed: " + ", ".join(c["name"] for c in checks if not c["passed"])
-        )
-        result = GrowthEvalResult(
-            passed=passed,
-            checks=checks,
-            summary=summary,
-            contract_id=contract.contract_id,
-            contract_version=contract.version,
+        result = _run_eval_checks(
+            parsed, self._tool_registry, self._guard_registry,
+            self._context_registry, contract,
         )
         await self._store.store_eval_result(version, result)
         logger.info(

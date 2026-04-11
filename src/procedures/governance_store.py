@@ -89,6 +89,21 @@ def _row_to_proposal_record(row: object) -> ProcedureSpecProposalRecord:
 # ---------------------------------------------------------------------------
 
 
+_CLEAR_APPLIED_STATUSES = frozenset({
+    GrowthLifecycleStatus.proposed,
+    GrowthLifecycleStatus.vetoed,
+})
+
+
+def _applied_at_expr(status: GrowthLifecycleStatus) -> str:
+    """Return SQL expression for applied_at based on target status."""
+    if status in _CLEAR_APPLIED_STATUSES:
+        return "NULL"
+    if status == GrowthLifecycleStatus.rolled_back:
+        return "COALESCE(:applied_at, applied_at)"
+    return ":applied_at"
+
+
 class ProcedureSpecGovernanceStore:
     """PostgreSQL-backed store for procedure spec governance.
 
@@ -275,29 +290,14 @@ class ProcedureSpecGovernanceStore:
     ) -> None:
         """Update the status of a governance ledger entry.
 
-        ``applied_at`` semantics are status-aware:
-        - ``active``: writes the provided timestamp (caller must supply).
-        - ``proposed`` / ``vetoed``: clears to NULL (no valid apply).
-        - ``rolled_back``: preserves existing value for audit trail.
-
-        ``rolled_back_from`` uses COALESCE to preserve existing value.
+        ``applied_at`` is status-aware: ``proposed``/``vetoed`` clear to NULL,
+        ``rolled_back`` preserves, ``active`` writes the provided value.
         """
-        # Status-aware applied_at: preserve on rollback, clear on proposed/vetoed
-        if status in (
-            GrowthLifecycleStatus.proposed,
-            GrowthLifecycleStatus.vetoed,
-        ):
-            applied_at_expr = "NULL"
-        elif status == GrowthLifecycleStatus.rolled_back:
-            applied_at_expr = "COALESCE(:applied_at, applied_at)"
-        else:
-            # active (or any future status): write the provided value
-            applied_at_expr = ":applied_at"
-
+        at_expr = _applied_at_expr(status)
         sql = text(f"""
             UPDATE {DB_SCHEMA}.procedure_spec_governance SET
                 status = :status,
-                applied_at = {applied_at_expr},
+                applied_at = {at_expr},
                 rolled_back_from = COALESCE(:rolled_back_from, rolled_back_from)
             WHERE governance_version = :gv
         """)
@@ -306,8 +306,7 @@ class ProcedureSpecGovernanceStore:
             "status": status.value,
             "rolled_back_from": rolled_back_from,
         }
-        # Only bind :applied_at when the expression references it
-        if ":applied_at" in applied_at_expr:
+        if ":applied_at" in at_expr:
             params["applied_at"] = applied_at
         if session is not None:
             await session.execute(sql, params)

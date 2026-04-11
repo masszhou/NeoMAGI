@@ -120,6 +120,24 @@ def _make_governance_proposal(spec: ProcedureSpec) -> GrowthProposal:
     )
 
 
+async def _make_adapter(db_engine, db_session_factory, extra_tools=()):
+    """Shared setup: ensure schema, build registries/stores/adapter."""
+    await ensure_schema(db_engine, DB_SCHEMA)
+    tool_registry = ToolRegistry()
+    tool_registry.register(_FakeTool("fake_tool"))
+    for name in extra_tools:
+        tool_registry.register(_FakeTool(name))
+    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
+    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
+    proc_store = ProcedureStore(db_session_factory)
+    adapter = ProcedureSpecGovernedObjectAdapter(
+        governance_store=gov_store, spec_registry=spec_reg,
+        tool_registry=tool_registry, context_registry=ctx_reg,
+        guard_registry=guard_reg, procedure_store=proc_store,
+    )
+    return adapter, gov_store, spec_reg
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -132,22 +150,7 @@ async def test_e2e_propose_evaluate_apply_rollback(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Full lifecycle: propose → evaluate → apply → rollback."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
-    )
+    adapter, gov_store, spec_reg = await _make_adapter(db_engine, db_session_factory)
 
     spec = _make_spec()
     proposal = _make_governance_proposal(spec)
@@ -187,22 +190,7 @@ async def test_apply_same_spec_twice_rejected(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """apply same spec_id twice → second rejected (app layer + DB unique index)."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
-    )
+    adapter, _, _ = await _make_adapter(db_engine, db_session_factory)
 
     spec = _make_spec(spec_id="proc-dup-test")
     proposal = _make_governance_proposal(spec)
@@ -226,22 +214,7 @@ async def test_rollback_then_new_apply_recovery(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """rollback → new propose → apply → confirms recovery path."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
-    )
+    adapter, _, spec_reg = await _make_adapter(db_engine, db_session_factory)
 
     spec_v1 = _make_spec(spec_id="proc-recovery", version=1)
     p1 = _make_governance_proposal(spec_v1)
@@ -272,22 +245,7 @@ async def test_governance_ledger_completeness(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Ledger records: proposed → active → rolled_back → proposed → active."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
-    )
+    adapter, gov_store, _ = await _make_adapter(db_engine, db_session_factory)
 
     spec_id = "proc-ledger"
     spec_v1 = _make_spec(spec_id=spec_id, version=1)
@@ -332,22 +290,8 @@ async def test_jsonb_round_trip(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """JSONB round-trip: frozenset, nested frozen models, multi-state actions."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    tool_registry.register(_FakeTool("review_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
+    adapter, gov_store, _ = await _make_adapter(
+        db_engine, db_session_factory, extra_tools=("review_tool",),
     )
 
     spec = _make_spec(
@@ -435,22 +379,7 @@ async def test_rollback_preserves_applied_at(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """[P2] rollback must preserve applied_at timestamp on the ledger row."""
-    await ensure_schema(db_engine, DB_SCHEMA)
-
-    tool_registry = ToolRegistry()
-    tool_registry.register(_FakeTool("fake_tool"))
-    spec_reg, ctx_reg, guard_reg = _build_registries(tool_registry)
-    gov_store = ProcedureSpecGovernanceStore(db_session_factory)
-    proc_store = ProcedureStore(db_session_factory)
-
-    adapter = ProcedureSpecGovernedObjectAdapter(
-        governance_store=gov_store,
-        spec_registry=spec_reg,
-        tool_registry=tool_registry,
-        context_registry=ctx_reg,
-        guard_registry=guard_reg,
-        procedure_store=proc_store,
-    )
+    adapter, gov_store, _ = await _make_adapter(db_engine, db_session_factory)
 
     spec = _make_spec(spec_id="proc-applied-at-test")
     proposal = _make_governance_proposal(spec)

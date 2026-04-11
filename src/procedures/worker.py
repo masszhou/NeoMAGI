@@ -269,10 +269,11 @@ def _normalize_tool_calls(raw_calls: Any) -> list[dict[str, str]]:
             result.append(tc)
         else:
             # Pydantic SDK object: attributes id, function.name, function.arguments
+            fn = getattr(tc, "function", None)
             result.append({
                 "id": getattr(tc, "id", "") or "",
-                "name": getattr(tc.function, "name", "") if hasattr(tc, "function") else "",
-                "arguments": getattr(tc.function, "arguments", "") if hasattr(tc, "function") else "",
+                "name": getattr(fn, "name", "") if fn else "",
+                "arguments": getattr(fn, "arguments", "") if fn else "",
             })
     return result
 
