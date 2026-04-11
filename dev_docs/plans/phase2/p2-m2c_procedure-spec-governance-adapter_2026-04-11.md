@@ -5,7 +5,7 @@ doc_id_assigned_at: 2026-04-11T18:27:54+02:00
 ---
 # P2-M2c 实现计划：ProcedureSpec Governance Adapter
 
-> 状态：draft v5（v4 review finding 已采纳）  
+> 状态：approved  
 > 日期：2026-04-11  
 > 输入：`design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md` Section 3  
 > 参照模式：`SkillGovernedObjectAdapter` + `WrapperToolGovernedObjectAdapter`
