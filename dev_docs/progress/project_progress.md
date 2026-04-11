@@ -655,5 +655,5 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
   - P2: compensate 路径 — proposed 强制清空 applied_at
 - Evidence: `dev_docs/logs/phase2/p2-m2c_procedure-spec-governance-adapter_2026-04-11.md`
 - Tests: 66 新增 (58 unit + 8 integration); 1860 total passed
-- Next: 按 roadmap 进入 P2-M3 (Memory Source Ledger)
+- Next: P2-M2d (Memory Source Ledger Prep for P2-M3); 之后进入 P2-M3 (Identity / Principal / Visibility / Memory Policy)
 - Risk: eval checks 是重复实现而非直接调用 validate_procedure_spec()，后续若 registry 校验规则变更需同步
