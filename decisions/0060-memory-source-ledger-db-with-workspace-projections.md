@@ -90,4 +90,6 @@ Retrieval and memory applications remain rebuildable projections above stable pr
 - 实现时机：
   - 决策现在生效，作为 P2-M3 之前的架构输入；
   - 不建议抢在 P2-M3 主线中直接完成全量迁移；
-  - 推荐在 P2-M3 之前或 P2-M3a 期间完成 schema / writer 双写预备，在 P2-M3 identity / visibility policy 稳定后再切换 read / reindex truth。
+  - 最小 schema / writer 双写预备归入 `P2-M2d: Memory Source Ledger Prep for P2-M3`；
+  - `P2-M2d` 只做 append-only ledger schema、writer API、`memory_append` 双写与 parity / reconcile 检查，不切换 read path；
+  - 在 P2-M3 identity / visibility policy 稳定后，再切换 read / reindex truth，并逐步完善 render/export/import/reconcile。

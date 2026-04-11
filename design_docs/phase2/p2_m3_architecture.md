@@ -22,7 +22,7 @@ doc_id_assigned_at: 2026-03-06T10:02:44+01:00
 - WebChat 当前仍是匿名会话，默认 `main`。
 - Telegram 已实现 `per-channel-peer`，但仅 Telegram 侧具备受控 identity 输入。
 - `SessionIdentity` 已为 `peer_id` / `account_id` 预留字段，但尚未成为完整 principal / binding 模型。
-- 记忆真源已明确在 workspace，DB 作为 retrieval plane。
+- ADR 0060 已将机器写入 memory truth 调整为 DB append-only source ledger；workspace memory 文件保留为 projection / export surface。
 - 检索质量已有基础能力，但 hybrid search、memory applications、跨渠道共享规则仍未正式落地。
 - 当前没有 `shared_space_id` / membership / memory visibility policy；因此不能安全支持“同一个 NeoMAGI 同时作为多方共同朋友”的 Shared Companion 场景。
 
@@ -45,12 +45,14 @@ doc_id_assigned_at: 2026-03-06T10:02:44+01:00
 - canonical principal
 - binding 模型
 - 为 shared-space membership 预留 principal-stable identity
+- 接收 `P2-M2d` 的 memory source ledger prep，但不在本阶段早期切换 read path
 
 ### P2-M3b：User Continuity & Sharing Policy
 - verified binding 之后的 per-user continuity
 - 跨渠道 / 跨 agent 分享规则
 - private memory 与 published summary 的基础 visibility 边界
 - fail-closed 默认边界
+- ledger 中 `principal_id` / visibility 字段开始具备正式 policy 语义
 
 ### P2-M3c：Relationship Space & Consent-Scoped Memory
 - `shared_space_id` / membership / consent-scoped visibility
@@ -63,6 +65,7 @@ doc_id_assigned_at: 2026-03-06T10:02:44+01:00
 - recall quality eval
 - memory application spec / manifest
 - relationship memory application skeleton
+- 将 `memory_entries` reindex 来源从 Markdown parser 切换为 DB ledger current view
 
 ## 4. 目标架构（高层）
 
@@ -148,13 +151,14 @@ V1 应以 fail-safe 为默认：遇到上述风险时，优先标记单方视角
 
 - 在 memory kernel 之上允许更明确的 application spec 进入正式路径。
 - 这层不改变：
-  - workspace truth
-  - DB retrieval plane
+  - DB source ledger truth
+  - workspace projection / export
+  - retrieval projection 可重建
 - 这层只增加：
   - 领域化组织方式
   - 作用域与共享策略
   - capability / skill 对 memory app 的可见性
-- relationship memory 应作为 memory application 的候选，而不是 memory kernel 的硬编码 schema；其 source-of-truth 仍应是 workspace 中可重建、可审计、可解释的材料。
+- relationship memory 应作为 memory application 的候选，而不是 memory kernel 的硬编码 schema；其 source-of-truth 应是 DB append-only ledger 中可重建、可审计、可解释的材料，workspace 只承载 projection / export。
 
 ## 5. 边界
 

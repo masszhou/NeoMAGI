@@ -7,7 +7,7 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
 
 - Status: accepted
 - Date: 2026-04-07
-- Related: ADR 0034, ADR 0047, ADR 0048, ADR 0053
+- Related: ADR 0034, ADR 0047, ADR 0048, ADR 0053, ADR 0060
 
 ## 选了什么
 
@@ -19,7 +19,7 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
   - `membership` 表示哪些 principal 属于该 shared space，以及成员状态与角色。
   - `visibility` 表示 memory 是否为 `private_to_principal`、`shared_in_space` 或 `shareable_summary`。
 - 关系记忆必须是 consent-scoped：默认不把某一方私聊记忆暴露给另一方；只有经明确授权或在 shared space 中产生的内容，才可进入 shared memory。
-- 关系记忆仍遵循 memory kernel 原则：workspace 是真源，PostgreSQL 是 retrieval/projection plane；shared memory 是 memory application 层的组织方式，不把数据库 schema 提升为真源。
+- 关系记忆仍遵循 memory kernel 原则：DB append-only source ledger 是机器写入 memory truth，workspace 是 projection / export surface；shared memory 是 memory application 层的组织方式，不把 retrieval schema 或 graph projection 提升为真源。
 - `P2-M2` 只为该能力预留 procedure execution context 余量，例如 actor/principal/shared_space/visibility，而不在 Procedure Runtime Core 中实现关系记忆产品能力。
 - `P2-M3` 承担 Shared Companion 的最小可验收语义：authenticated principals、shared space membership、consent-scoped memory visibility、scope-safe retrieval。
 - `P2-M4` 承担 shared space 的外部协作表面，例如 Slack / 群聊 / channel adapter；这些表面不得绕过 `P2-M3` 的 identity 与 memory sharing policy。
@@ -51,7 +51,7 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
 - `design_docs/phase2/p2_m2_architecture.md` 应明确：Procedure Runtime 的 execution context 不应永久等同于单 session / 单 principal；但 `P2-M2a` 不实现 shared relationship memory。
 - `design_docs/phase2/p2_m3_architecture.md` 应把 `shared_space_id`、membership、visibility 与 consent-scoped memory 作为 identity / sharing policy 的设计余量。
 - `design_docs/phase2/p2_m4_architecture.md` 应把群聊 / Slack 定位为 shared space 的表面之一，而不是 shared memory 的真源或 policy 决策点。
-- 后续实现 memory application 时，应允许 relationship memory 作为一类应用，但必须保持 workspace truth、scope filtering、provenance 与 reindexability。
+- 后续实现 memory application 时，应允许 relationship memory 作为一类应用，但必须保持 DB ledger truth、workspace projection、scope filtering、provenance 与 reindexability。
 
 ## 后续必须回答的问题
 

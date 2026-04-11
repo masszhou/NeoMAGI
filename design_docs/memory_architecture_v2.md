@@ -8,40 +8,48 @@ doc_id_assigned_at: 2026-03-05T22:54:30+01:00
 > 状态：current  
 > 日期：2026-03-04  
 > 用途：作为 memory 设计的长期原则文档，替代早期偏 `P1-M2` / `P1-M3` 规划口径的 `design_docs/phase1/memory_architecture.md`
+> 修订：ADR 0060 已将机器写入 memory truth 从 workspace Markdown 调整为 DB append-only source ledger；workspace 文件保留为 projection / export surface。
 
 ## 1. 核心判断
-- Memory 的真源保持在 workspace，而不是数据库。
-- PostgreSQL 主要承担检索、过滤、排序和派生加速，不承担“记忆事实裁决层”角色。
+- 机器写入 memory 的真源是 PostgreSQL 中的 append-only source ledger。
+- workspace memory files 是人类可读、可导出、可重建的 projection / export surface。
+- PostgreSQL 的 source ledger 只承担极薄事实账本，不等同于 retrieval 表、向量索引、graph projection 或完整 memory ontology。
 - 平台只提供稳定原子操作；更高层的记忆组织方式允许 agent 按用户场景演化。
 - 人类定义 `memory kernel`。
 - agent 在 `memory kernel` 之上组合、声明、演化 `memory applications`。
-- workspace 持有原始材料与 spec。
-- 数据库持有索引、缓存、派生结构和查询加速层。
+- DB ledger 持有机器写入的原始材料、provenance、scope、visibility 与最小治理元数据。
+- workspace 持有人类可读 projection、export 与部分 spec。
+- retrieval 表、缓存、派生结构和查询加速层仍是可重建 projection。
 
 核心句：
 
-**Memory truth lives in workspace. Retrieval lives in PostgreSQL. Memory applications evolve above stable primitives.**
+**Memory truth lives in an append-only user-owned PostgreSQL ledger. Workspace files are readable projections and exports. Retrieval and memory applications remain rebuildable projections above stable primitives.**
 
-## 2. 为什么 memory 真源在 workspace
-- 符合 personal agent 的工作区模型：记忆首先是可累积、可检查、可迁移的材料。
-- daily notes 和 `MEMORY.md` 天然适合承载“原始沉淀 + 长期策展”。
-- 检索层损坏时，可从文件真源重建，不会把索引误当真相。
-- 允许未来脱离当前检索实现继续保留记忆资产。
+## 2. 为什么 memory 真源迁移到 DB source ledger
+- PostgreSQL 已是产品运行时 hard dependency，不再是额外依赖。
+- append-only ledger 更适合承载 provenance、scope、identity、visibility、redaction、contested memory 与审计。
+- direct file edits 容易绕过授权、审计和一致性检查；显式 import / reconcile 才应把文件改动带回 ledger。
+- Shared Companion / consent-scoped memory 需要更强的来源、授权与修正语义，Markdown 元数据协议会快速累积兼容债。
+- workspace projection 继续保留可读性、导出性和可迁移性，但不再裁决机器写入事实。
 
-## 3. 为什么数据库不是 memory 真源
-- 数据库擅长索引、召回、过滤、排序和并发查询。
-- 但 memory 在本项目中不是先验定义好的固定数据模型，而是会随用户任务逐步分化。
-- 如果过早把数据库 schema 当作记忆真源，就会把“当前实现的检索模型”误固化成“长期记忆模型”。
+## 3. 为什么 DB ledger 不是完整 memory ontology
+- 数据库可以承载极薄事实账本，但不能把当前检索 schema 提升为长期记忆本体。
+- `memory_entries`、embedding、ranking、thread、graph edge、summary cluster 都是 projection，可从 source ledger 重建。
+- memory 在本项目中不是先验定义好的固定数据模型，而是会随用户任务逐步分化。
+- 如果过早把完整数据库 ontology 当作真源，就会把“当前实现的检索模型”误固化成“长期记忆模型”。
 
 ## 4. 平台层与进化层的分工
 
 ### 4.1 Memory Kernel（平台固定层）
-- workspace memory files
+- DB source ledger
+  - append-only memory events / versions
+  - provenance / scope / visibility / source metadata
+- workspace memory projections
   - `workspace/memory/YYYY-MM-DD.md`
   - `workspace/MEMORY.md`
 - memory specs
   - agent 可声明的 memory application spec/manifest
-  - 这些 spec 与原始记忆材料同样保存在 workspace，而不是直接把 DB schema 当真源
+  - 这些 spec 可继续作为 workspace / governance artifact 管理，不把 retrieval DB schema 当真源
 - scope-aware 原子操作
   - append
   - search
@@ -65,7 +73,7 @@ doc_id_assigned_at: 2026-03-05T22:54:30+01:00
   - 自媒体作者：style memory、topic backlog、argument bank、audience feedback memory
   - 软件项目用户：decision memory、bug pattern memory、review checklist memory
   - Shared Companion：relationship memory、shared-space summary、consent-scoped visibility ledger
-- relationship memory 只能作为 memory application 演化，不能把 shared-space schema 直接硬编码进 memory kernel；它必须继续复用 scope filtering、workspace truth 与可重建 retrieval projection。
+- relationship memory 只能作为 memory application 演化，不能把 shared-space schema 直接硬编码进 memory kernel；它必须继续复用 scope filtering、DB ledger truth 与可重建 retrieval / workspace projection。
 
 ## 5. 长期原则
 - 不预设唯一的“标准 memory schema”适用于所有用户。
@@ -77,18 +85,20 @@ doc_id_assigned_at: 2026-03-05T22:54:30+01:00
 ## 6. 关键边界
 - 平台不应把某一版数据库结构误当作 memory 的永久本体。
 - agent 可以演化记忆应用层，但不应随意破坏 memory kernel 的稳定契约。
-- workspace 中保存的是记忆原始材料、长期沉淀以及 memory specs；数据库中保存的是索引、缓存、派生结构与查询加速层。
+- DB source ledger 保存机器写入 memory 的事实账本；workspace 中保存的是人类可读 projection、export 以及部分 memory specs；retrieval 表保存索引、缓存、派生结构与查询加速层。
 - `SOUL` 不属于此文档范畴：`SOUL` 是受治理对象，真源在 DB，`SOUL.md` 是 projection。
 - `scope_key` 回答“谁可以检索到这条记忆”；未来若引入 `shared_space_id`，也必须先映射到明确的 visibility / membership policy，再进入 retrieval。
 - 私有记忆与 shared-space memory 必须是硬边界；不能因为两个 principal 属于同一关系空间，就默认互相召回私聊记忆。
 
 ## 7. 对当前实现的含义
 - `memory_entries` 继续视为检索数据面，而非真源。
-- daily notes 与 `MEMORY.md` 继续视为记忆真源。
-- reindex 是正常恢复手段，不是异常补丁。
-- `P1-M5` 的 `doctor/preflight` 应显式区分：
-  - memory truth: workspace
-  - memory retrieval plane: PostgreSQL
+- daily notes 与 `MEMORY.md` 继续作为 projection / export；在 `P2-M2d` 之前，旧写入路径仍可能表现为文件优先，但新设计不得把它们作为长期机器写入真源。
+- `P2-M2d` 只做 source ledger schema、append-only writer、`memory_append` 双写与 parity / reconcile 检查，不切换 read path。
+- `P2-M3` identity / visibility policy 稳定后，再将 reindex 来源切到 DB ledger current view。
+- `doctor/preflight` 应显式区分：
+  - memory truth: DB append-only source ledger
+  - memory projection/export: workspace
+  - memory retrieval plane: PostgreSQL projections / indexes
 
 ## 8. 非目标
 - 不追求由人类预先设计一套覆盖所有用户场景的统一记忆体系。

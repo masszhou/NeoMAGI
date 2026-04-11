@@ -43,7 +43,7 @@ P2-M2 已完成，可进入用户验收。
 - Worker 工具隔离与有界执行
 
 不在本指导范围内：
-- Growth governance adapter for `procedure_spec`（延期到 P2-M3+）
+- Growth governance adapter for `procedure_spec`（延期到 `P2-M2c`）
 - Shared Companion memory / membership（不在 P2 scope）
 - 并发 procedure per session（设计上禁止）
 - Workflow DSL / DAG 调度
@@ -798,7 +798,7 @@ PY
   - `ActionSpec.tool` 是必填 `str`，没有 `None` 选项
   - 如果绑定 `procedure_delegate` 来做 cancel，会触发不必要的 worker LLM 调用
   - 如果绑定 `procedure_publish` 来做 cancel，会因 `_pending_handoffs` 为空而报错
-- 结论：**P2-M2 缺少 "direct state transition without tool execution" 的原生支持**。后续 P2-M3+ 应考虑：
+- 结论：**P2-M2 缺少 "direct state transition without tool execution" 的原生支持**。后续 `P2-M2c` 或独立 procedure runtime fix 应考虑：
   - 允许 `ActionSpec(tool=None, to="cancelled")` 直接转换
   - 或在 runtime 中内置 `procedure_noop` tool
   - 记入 open issues

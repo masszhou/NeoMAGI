@@ -22,14 +22,17 @@ doc_id_assigned_at: 2026-03-21T11:30:15+01:00
 4. `design_docs/phase2/p2_m2_architecture.md`
    - `P2-M2`：Procedure Runtime、多 agent runtime、handoff / steering / resume。
 
-5. `design_docs/phase2/p2_m2_self_evolution_demo.md`
-   - `P2` 首个重要 demo 方案：在 `P2-M2b` 之后，用 CLI + beads + git worktree 驱动受治理的自我演进闭环。
+5. `design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md`
+   - `P2` self-evolution 分阶段计划：`P2-M2c` / `P2-M2d` 作为前置地基，完整 CLI workflow 推迟到 `P2-M5`。
 
 6. `design_docs/phase2/p2_m3_architecture.md`
    - `P2-M3`：身份认证、用户连续性、Shared Companion / relationship shared space、记忆质量与 memory applications。
 
 7. `design_docs/phase2/p2_m4_architecture.md`
    - `P2-M4`：外部协作表面、Slack、浏览器/外部平台读写边界。
+
+8. `design_docs/phase2/p2_m5_architecture.md`
+   - `P2-M5`：受治理自我演进工作流，组合 procedure、identity、external action surface、beads、git worktree 与 human gate。
 
 ## 2. 跨阶段设计（按需）
 
@@ -41,6 +44,8 @@ doc_id_assigned_at: 2026-03-21T11:30:15+01:00
   - `P2-M3` 的 memory kernel / applications 长期原则。
 - `decisions/0059-shared-companion-relationship-space-boundary.md`
   - Shared Companion 的 relationship/shared-space 边界：`P2-M2` 预留 runtime context，`P2-M3` 落地 identity / membership / consent-scoped memory，`P2-M4` 承接协作表面。
+- `decisions/0060-memory-source-ledger-db-with-workspace-projections.md`
+  - Memory truth 调整为 DB append-only ledger，workspace memory 文件作为 projection / export；`P2-M2d` 只做 schema / writer 双写预备，完整 read / reindex 切换归入 `P2-M3`。
 
 ## 3. 当前状态
 
