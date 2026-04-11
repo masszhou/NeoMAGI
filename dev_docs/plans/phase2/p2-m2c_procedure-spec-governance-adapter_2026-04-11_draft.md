@@ -5,7 +5,7 @@ doc_id_assigned_at: 2026-04-11T18:27:54+02:00
 ---
 # P2-M2c 实现计划：ProcedureSpec Governance Adapter
 
-> 状态：draft v4（v3 review finding 已采纳）  
+> 状态：draft v5（v4 review finding 已采纳）  
 > 日期：2026-04-11  
 > 输入：`design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md` Section 3  
 > 参照模式：`SkillGovernedObjectAdapter` + `WrapperToolGovernedObjectAdapter`
@@ -45,7 +45,7 @@ propose → evaluate → apply → rollback / veto → audit
 |----|------|------|
 | id | TEXT PK | spec_id |
 | version | INTEGER | spec version |
-| payload | JSONB | ProcedureSpec.model_dump() |
+| payload | JSONB | ProcedureSpec.model_dump(mode="json") |
 | disabled | BOOLEAN default FALSE | rollback 后标记禁用 |
 | created_at | TIMESTAMPTZ | |
 | updated_at | TIMESTAMPTZ | |
@@ -83,6 +83,8 @@ CREATE UNIQUE INDEX uq_procedure_spec_governance_single_active
 - `find_last_applied(spec_id) → record | None`
 - `list_active() → list[record]`
 - `transaction() → AsyncContextManager[AsyncSession]`
+
+**JSONB 序列化约束**：所有写入 `payload` JSONB 列的数据必须使用 `spec.model_dump(mode="json")`，不能使用默认 `mode="python"`。原因：`allowed_modes` 为 `frozenset[ToolMode]`，`states` 包含嵌套 frozen `BaseModel`，默认 python mode 保留这些非 JSON 原生类型会导致 `jsonb` 写入失败。读取时用 `ProcedureSpec.model_validate(payload)` 反序列化。governance store 的 `create_proposal()` 和 `upsert_active()` 在写入前统一调用 `model_dump(mode="json")`。
 
 **`src/session/database.py`**：
 - 新增 `_create_procedure_spec_governance_tables(conn, schema)` — idempotent DDL（含 partial unique index）
@@ -308,6 +310,7 @@ ProcedureRegistries = namedtuple(
 - apply 同 spec_id 两次 → 第二次被拒绝（应用层 + DB unique index 双重保护）
 - rollback → 新 propose → apply → 确认恢复路径正确
 - governance ledger 记录完整（proposed → active → rolled_back → proposed → active）
+- **JSONB round-trip**：apply 一个包含 `allowed_modes=frozenset({ToolMode.chat_safe, ToolMode.coding})`、多状态 actions、嵌套 guards 的 spec → 从 DB 读回 → `ProcedureSpec.model_validate(payload)` 成功且字段值一致
 
 ## 3. 执行顺序
 
@@ -342,6 +345,7 @@ A→B→C 是严格依赖；D 依赖 C；E 覆盖全部。
 - 不做 in-place upgrade（apply 时同 spec_id 已有 applied → 拒绝）
 - 不做 rollback restore previous（rollback = disable-only，与 WrapperToolGovernedObjectAdapter 一致）
 - 不做 spec 的 WebChat 用户入口（propose 仍通过 CLI 或 operator 脚本）
+- 不做 context_registry / guard_registry 的生产注册源（P2-M2c 只交付治理基础设施 + 测试 fixture；真实 spec 的 context model / guard 注册在各 spec 自身的 milestone 中落地）
 - 不改 ProcedureRuntime 核心逻辑（enter/apply_action 不变）
 - 不重映射 eval contract check 名称（保留 skeleton 原名）
 
@@ -355,5 +359,6 @@ A→B→C 是严格依赖；D 依赖 C；E 覆盖全部。
 | restore 时 procedure-only tools 未注册 | `_register_procedure_tools()` 在 restore 之前调用 |
 | governance_store 构造位置不明 | 在 `_build_memory_and_tools()` 中显式构造，传入 adapter 和 restore |
 | adapter 拿不到 eval 所需 registries | 构造函数显式接收全部 6 个依赖；`_build_governance_engine()` 接收完整 bundle |
+| JSONB 写入 frozenset/frozen model 失败 | 统一 `model_dump(mode="json")`；PG 集成测试覆盖 round-trip |
 | fresh DB 缺表 | ensure_schema() 中加 idempotent DDL（含 partial unique index） |
 | Eval 检查 V1 不够深 | 保留原名 + 最小实现，后续可加深 |
