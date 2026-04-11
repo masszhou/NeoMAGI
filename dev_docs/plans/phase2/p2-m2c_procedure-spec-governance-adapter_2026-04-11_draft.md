@@ -5,7 +5,7 @@ doc_id_assigned_at: 2026-04-11T18:27:54+02:00
 ---
 # P2-M2c 实现计划：ProcedureSpec Governance Adapter
 
-> 状态：draft v3（v2 review findings 已采纳）  
+> 状态：draft v4（v3 review finding 已采纳）  
 > 日期：2026-04-11  
 > 输入：`design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md` Section 3  
 > 参照模式：`SkillGovernedObjectAdapter` + `WrapperToolGovernedObjectAdapter`
@@ -111,7 +111,29 @@ CREATE UNIQUE INDEX uq_procedure_spec_governance_single_active
 
 ### Slice C：ProcedureSpecGovernedObjectAdapter（7 个协议方法）
 
-在 `src/growth/adapters/procedure_spec.py` 中实现完整 adapter：
+在 `src/growth/adapters/procedure_spec.py` 中实现完整 adapter。
+
+**构造函数显式接收全部依赖**：
+```python
+class ProcedureSpecGovernedObjectAdapter:
+    def __init__(
+        self,
+        governance_store: ProcedureSpecGovernanceStore,
+        spec_registry: ProcedureSpecRegistry,
+        tool_registry: ToolRegistry,
+        context_registry: ProcedureContextRegistry,
+        guard_registry: ProcedureGuardRegistry,
+        procedure_store: ProcedureStore,  # for has_active_for_spec()
+    ) -> None:
+```
+
+各依赖的用途：
+- `governance_store`：propose/evaluate/apply/rollback 的 DB 操作
+- `spec_registry`：apply → register, rollback → unregister, get_active → list_specs
+- `tool_registry`：evaluate `checkpoint_recoverability` 检查（action.tool 存在性）
+- `context_registry`：evaluate `scope_claim_consistency` 检查（context_model 可解析）
+- `guard_registry`：evaluate `guard_completeness` 检查（guard 可解析）
+- `procedure_store`：apply/rollback 前 `has_active_for_spec()` 安全检查
 
 ```
 kind = GrowthObjectKind.procedure_spec
@@ -195,14 +217,16 @@ async def _build_memory_and_tools(settings, db_session_factory):
     # 2. 注册 procedure-only tools (BEFORE restore — restore 需要 tool 验证)
     _register_procedure_tools(tool_registry)
 
-    # 3. 构造 procedure governance store
+    # 3. 构造 procedure governance store + procedure store
     procedure_governance_store = ProcedureSpecGovernanceStore(db_session_factory)
+    procedure_store = ProcedureStore(db_session_factory)
 
-    # 4. 构造 governance engine (需要 registries + governance_store)
+    # 4. 构造 governance engine (传入完整 procedure bundle)
     governance_engine, wrapper_tool_store = _build_governance_engine(
         db_session_factory, evolution_engine, skill_store, tool_registry,
-        procedure_spec_registry=procedure_registries.spec_registry,
+        procedure_registries=procedure_registries,
         procedure_governance_store=procedure_governance_store,
+        procedure_store=procedure_store,
     )
 
     # 5. 恢复 active wrappers
@@ -223,9 +247,9 @@ async def _build_memory_and_tools(settings, db_session_factory):
 ```
 
 关键顺序保证：
-1. `_register_procedure_tools()` 在 restore 之前 — restore 解析 spec 时 `validate_procedure_spec()` 需要 action.tool 在 ToolRegistry 中
-2. `ProcedureSpecGovernanceStore` 在 `_build_governance_engine()` 之前显式构造
-3. `_build_governance_engine()` 接收 `procedure_governance_store` 并传入 adapter
+1. `_register_procedure_tools()` 在 restore 之前 — restore 时 `validate_procedure_spec()` 需要 action.tool 在 ToolRegistry 中
+2. `ProcedureSpecGovernanceStore` 和 `ProcedureStore` 在 `_build_governance_engine()` 之前显式构造
+3. `_build_governance_engine()` 接收完整 `procedure_registries` bundle + `procedure_governance_store` + `procedure_store`，构造 adapter 时传入全部 6 个依赖
 4. restore 在 procedure-only tools 注册之后、runtime 构造之前
 
 `_build_procedure_registries(tool_registry)` 返回 namedtuple：
@@ -268,6 +292,7 @@ ProcedureRegistries = namedtuple(
 - `test_veto_active_delegates_to_rollback` — active → rollback
 - `test_get_active` — 返回已注册 specs
 - `test_update_flow_rollback_then_new_apply` — rollback → 新 propose → evaluate → apply 成功
+- `test_evaluate_uses_context_guard_registry` — evaluate 的 guard_completeness 和 scope_claim_consistency 通过注入的 context/guard registry 判定，而非依赖 spec_registry 的注册副作用
 
 **Wiring + restore 测试**：
 - `test_policy_procedure_spec_onboarded` — PolicyRegistry 中 procedure_spec 状态为 onboarded
@@ -329,5 +354,6 @@ A→B→C 是严格依赖；D 依赖 C；E 覆盖全部。
 | apply 时有 active instance | has_active_for_spec() → 拒绝 |
 | restore 时 procedure-only tools 未注册 | `_register_procedure_tools()` 在 restore 之前调用 |
 | governance_store 构造位置不明 | 在 `_build_memory_and_tools()` 中显式构造，传入 adapter 和 restore |
+| adapter 拿不到 eval 所需 registries | 构造函数显式接收全部 6 个依赖；`_build_governance_engine()` 接收完整 bundle |
 | fresh DB 缺表 | ensure_schema() 中加 idempotent DDL（含 partial unique index） |
 | Eval 检查 V1 不够深 | 保留原名 + 最小实现，后续可加深 |
