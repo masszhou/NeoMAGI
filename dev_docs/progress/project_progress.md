@@ -715,3 +715,33 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Files: 11 新增 + 25 修改 = 36 files, +1944 lines
 - Next: P2-M3b (Memory Ledger & Visibility Policy)
 - Risk: ProcedureExecutionMetadata.principal_id 只保证 runtime API 层填充，端到端 WebSocket→enter_procedure 需等 procedure entry surface 建立
+
+## 2026-04-12 23:38 (local) | P2-M3b
+- Status: done
+- Done: Memory Ledger & Visibility Policy — principal identity + visibility 接入 memory ledger、search、PromptBuilder、reindex 全路径
+- Scope:
+  - memory_source_ledger 新增 principal_id + visibility 列 (CHECK 约束) + idx_memory_source_ledger_principal
+  - memory_entries 新增 principal_id + visibility 列 + idx_memory_entries_principal + idx_memory_entries_visibility
+  - MemoryLedgerWriter.append(principal_id=, visibility=) + get_current_view() 全字段返回
+  - MemoryWriter.append_daily_note(principal_id=, visibility=); visibility fail-closed (shared_in_space 拒绝); workspace projection 渲染 principal/visibility metadata (NULL 时省略 principal); 增量索引改由 ledger_written 驱动 (D13)
+  - MemorySearcher.search(principal_id=) + _build_search_sql() WHERE principal + visibility 过滤 (D5 deny-by-default)
+  - PromptBuilder._filter_entries() 替代 _filter_entries_by_scope — scope + principal + visibility 3-way 等价过滤 (D10); build(principal_id=) per-request
+  - message_flow 调用顺序修正: principal_id 提取移到 _fetch_memory_recall() 之前 (D11)
+  - _fetch_memory_recall(principal_id=), _persist_flush_candidates(principal_id=), try_compact(principal_id=), _handle_publish_flush() 全链路 principal 透传
+  - memory_append / memory_search 工具消费 context.principal_id
+  - ResolvedFlushCandidate.principal_id 新字段
+  - reindex_from_ledger() + reindex_all(scope_key=None, ledger=) 支持 ledger-based 全 scope 重建
+  - restore.py + CLI reindex ledger-based (scope_key=None 全 scope)
+  - parity checker 比较 principal_id + visibility; _parse_entry_metadata() 返回 principal + visibility
+  - ensure_schema() 补建 memory_entries 索引
+  - data model 文档更新 (memory_source_ledger.md, memory_entries.md, index.md)
+- Review Findings (plan alignment + impl 2 rounds, all fixed):
+  - Plan: M3b baseline 对齐 M3a 实际实现 (ToolContext/tool_runner/RequestState 已由 M3a 完成); PrincipalStore.resolve_principal_id 修正; AUTH_PASSWORD→AUTH_PASSWORD_HASH; D11 调用顺序明确
+  - Impl R1 P2×2+P3×1: _parse_daily_entries 丢弃 principal/visibility; restore 只重建 main scope; ensure_schema 漏建 2 索引
+  - Impl R2 P2×1: CLI reindex 同 R1 scope 问题
+- Evidence: `dev_docs/logs/phase2/p2-m3b_memory-ledger-visibility-policy_2026-04-12.md`
+- Commits: 7d3221a (plan) + e1b555f (impl) + 41afe8b (R1 fix) + 2dc5e4f (R2 fix)
+- Tests: 28 新增 M3b 专属 + 4 文件适配; 1851 total passed
+- Files: 2 新增 + 25 修改 = 27 files, +1127/-82 lines
+- Next: P2-M3c (Visibility Policy Hooks + Retrieval Quality) 或 P2-M2 (Procedure Runtime)
+- Risk: PromptBuilder._filter_entries() 分支数 10 (block 阈值 6), 已入 baseline; 三路等价策略靠测试保证一致性而非共享代码
