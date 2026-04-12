@@ -498,10 +498,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     budget_gate = BudgetGate(engine, schema=settings.database.schema_)
 
     # P2-M3a: auth wiring
-    principal_store = PrincipalStore(db_session_factory)
+    auth_enabled = settings.auth.password_hash is not None
+    principal_store: PrincipalStore | None = None
     jwt_secret = settings.auth.jwt_secret or generate_secret()
     rate_limiter = LoginRateLimiter()
-    if settings.auth.password_hash:
+    if auth_enabled:
+        principal_store = PrincipalStore(db_session_factory)
         await principal_store.ensure_owner(
             name=settings.auth.owner_name,
             password_hash=settings.auth.password_hash,
@@ -541,6 +543,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── P2-M3a: HTTP error handler for auth routes ──
+
+_ERROR_CODE_TO_STATUS = {
+    "AUTH_NOT_CONFIGURED": 405,
+    "AUTH_RATE_LIMITED": 429,
+    "AUTH_FAILED": 401,
+    "SESSION_AUTH_REQUIRED": 403,
+    "SESSION_OWNER_MISMATCH": 403,
+    "ORIGIN_DENIED": 403,
+}
+
+
+@app.exception_handler(NeoMAGIError)
+async def _neomagi_error_handler(request: Request, exc: NeoMAGIError):
+    from starlette.responses import JSONResponse
+
+    status = _ERROR_CODE_TO_STATUS.get(exc.code, 500)
+    return JSONResponse(
+        status_code=status,
+        content={"error": {"code": exc.code, "message": str(exc)}},
+    )
+
+
+# ── P2-M3a: Origin enforcement helper ──
+
+
+def _is_allowed_origin(request_or_ws, app_state) -> bool:
+    """Check Origin header against GATEWAY_ALLOWED_ORIGINS (auth mode only).
+
+    Returns True if: no-auth mode, or no allowed_origins configured, or Origin matches.
+    """
+    auth_settings = app_state.auth_settings
+    if auth_settings.password_hash is None:
+        return True  # no-auth mode — no restriction
+    settings = app_state.settings
+    allowed_raw = settings.gateway.allowed_origins
+    if not allowed_raw:
+        return True  # no restriction configured (preflight warns about this)
+    allowed = {o.strip() for o in allowed_raw.split(",") if o.strip()}
+    origin = None
+    if hasattr(request_or_ws, "headers"):
+        origin = request_or_ws.headers.get("origin")
+    return origin is not None and origin in allowed
 
 
 @app.get("/health")
@@ -615,6 +662,9 @@ async def auth_login(request: Request) -> dict:
     if auth_settings.password_hash is None:
         raise GatewayError("Auth not configured", code="AUTH_NOT_CONFIGURED")
 
+    if not _is_allowed_origin(request, request.app.state):
+        raise GatewayError("Origin not allowed", code="ORIGIN_DENIED")
+
     rate_limiter: LoginRateLimiter = request.app.state.rate_limiter
     ip = request.client.host if request.client else "unknown"
 
@@ -650,6 +700,10 @@ _WS_AUTH_TIMEOUT_S = 10.0
 async def websocket_endpoint(websocket: WebSocket) -> None:
     auth_settings = websocket.app.state.auth_settings
     auth_mode = auth_settings.password_hash is not None
+
+    if auth_mode and not _is_allowed_origin(websocket, websocket.app.state):
+        await websocket.close(code=4003, reason="Origin not allowed")
+        return
 
     await websocket.accept()
     principal_id: str | None = None
