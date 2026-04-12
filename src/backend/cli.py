@@ -95,12 +95,13 @@ async def _run_doctor(deep: bool) -> int:
 
 
 async def _run_reindex(scope_key: str) -> int:
-    """TRUNCATE memory_entries then reindex_all from workspace files."""
+    """TRUNCATE memory_entries then reindex_all (ledger-based if available)."""
     from sqlalchemy import text
 
     from src.config.settings import get_settings
     from src.constants import DB_SCHEMA
     from src.memory.indexer import MemoryIndexer
+    from src.memory.ledger import MemoryLedgerWriter
     from src.session.database import create_db_engine, make_session_factory
 
     settings = get_settings()
@@ -115,13 +116,20 @@ async def _run_reindex(scope_key: str) -> int:
             await conn.execute(text(f"TRUNCATE {DB_SCHEMA}.memory_entries"))
         logger.info("reindex_truncated", cleared=old_count)
 
-        # Reindex from workspace files
+        # Reindex: prefer ledger-based, fallback to workspace
         session_factory = make_session_factory(engine)
         indexer = MemoryIndexer(session_factory, settings.memory)
-        new_count = await indexer.reindex_all(scope_key=scope_key)
-        logger.info("reindex_done", new_entries=new_count, scope=scope_key)
+        ledger = MemoryLedgerWriter(session_factory)
+        ledger_count = await ledger.count()
+        if ledger_count > 0:
+            new_count = await indexer.reindex_all(scope_key=scope_key, ledger=ledger)
+            mode = "ledger-based"
+        else:
+            new_count = await indexer.reindex_all(scope_key=scope_key)
+            mode = "workspace-based fallback"
+        logger.info("reindex_done", new_entries=new_count, scope=scope_key, mode=mode)
 
-        print(f"Reindex complete: cleared {old_count} → rebuilt {new_count} entries")  # noqa: T201
+        print(f"Reindex complete ({mode}): cleared {old_count} → rebuilt {new_count} entries")  # noqa: T201
     finally:
         await engine.dispose()
 

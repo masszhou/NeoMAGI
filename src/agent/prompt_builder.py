@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# P2-M3b: visibility values allowed in prompt injection (must match D5 search WHERE)
+_PROMPT_ALLOWED_VISIBILITY = frozenset({"private_to_principal", "shareable_summary"})
+
 # Workspace context files loaded every turn (priority order)
 WORKSPACE_CONTEXT_FILES = ["AGENTS.md", "USER.md", "SOUL.md", "IDENTITY.md"]
 # Conditional files
@@ -58,6 +61,7 @@ class PromptBuilder:
         recall_results: list[MemorySearchResult] | None = None,
         skill_view: ResolvedSkillView | None = None,
         procedure_view: ProcedureView | None = None,
+        principal_id: str | None = None,
     ) -> str:
         """Build the complete system prompt by concatenating all non-empty layers.
 
@@ -83,7 +87,7 @@ class PromptBuilder:
             self._layer_safety(mode),
             self._layer_skills(skill_view),
             self._layer_procedure(procedure_view),
-            self._layer_workspace(session_id, scope_key=scope_key),
+            self._layer_workspace(session_id, scope_key=scope_key, principal_id=principal_id),
             self._layer_compacted_context(compacted_context),
             self._layer_memory_recall(recall_results=recall_results),
             self._layer_datetime(),
@@ -171,7 +175,10 @@ class PromptBuilder:
                 lines.append(f"- *policy*: {policy}")
         return "\n".join(lines)
 
-    def _layer_workspace(self, session_id: str, *, scope_key: str = "main") -> str:
+    def _layer_workspace(
+        self, session_id: str, *, scope_key: str = "main",
+        principal_id: str | None = None,
+    ) -> str:
         """Load workspace bootstrap files and concatenate their contents."""
         filenames = list(WORKSPACE_CONTEXT_FILES)
         if scope_key == "main":
@@ -179,7 +186,9 @@ class PromptBuilder:
 
         parts = self._load_workspace_files(filenames)
 
-        daily_notes = self._load_daily_notes(scope_key=scope_key)
+        daily_notes = self._load_daily_notes(
+            scope_key=scope_key, principal_id=principal_id,
+        )
         if daily_notes:
             parts.append(daily_notes)
 
@@ -270,8 +279,10 @@ class PromptBuilder:
         now = datetime.now(UTC)
         return f"Current date and time (UTC): {now.strftime('%Y-%m-%d %H:%M:%S')}"
 
-    def _load_daily_notes(self, *, scope_key: str = "main") -> str:
-        """Load today + yesterday daily notes, filtered by scope_key."""
+    def _load_daily_notes(
+        self, *, scope_key: str = "main", principal_id: str | None = None,
+    ) -> str:
+        """Load today + yesterday daily notes, filtered by scope + principal + visibility."""
         load_days = 2
         max_tokens = 4000
         if self._memory_settings:
@@ -288,14 +299,17 @@ class PromptBuilder:
 
         for offset in range(load_days):
             part = self._load_single_day(memory_dir, today - timedelta(days=offset),
-                                         scope_key, max_chars)
+                                         scope_key, max_chars, principal_id=principal_id)
             if part:
                 parts.append(part)
 
         return "[Recent Daily Notes]\n" + "\n\n".join(parts) if parts else ""
 
-    def _load_single_day(self, memory_dir: Path, target_date: date,
-                         scope_key: str, max_chars: int) -> str | None:
+    def _load_single_day(
+        self, memory_dir: Path, target_date: date,
+        scope_key: str, max_chars: int,
+        *, principal_id: str | None = None,
+    ) -> str | None:
         filepath = memory_dir / f"{target_date.isoformat()}.md"
         if not filepath.is_file():
             return None
@@ -306,7 +320,7 @@ class PromptBuilder:
             return None
         if not raw:
             return None
-        filtered = self._filter_entries_by_scope(raw, scope_key)
+        filtered = self._filter_entries(raw, scope_key, principal_id=principal_id)
         if not filtered:
             return None
         if len(filtered) > max_chars:
@@ -316,14 +330,15 @@ class PromptBuilder:
         return f"=== {target_date.isoformat()} ===\n{filtered}"
 
     @staticmethod
-    def _filter_entries_by_scope(content: str, scope_key: str) -> str:
-        """Filter daily note entries by scope_key.
+    def _filter_entries(
+        content: str, scope_key: str, principal_id: str | None = None,
+    ) -> str:
+        """Filter daily note entries by scope + principal + visibility (D5/D10 equivalence).
 
-        Each entry starts with '---'. Entries with 'scope: X' metadata
-        are filtered. Entries without scope metadata are treated as
-        scope_key='main' (old data compatibility).
+        Strategy must match MemorySearcher.search() WHERE conditions:
+        - principal: own + legacy visible; cross-principal hidden; anonymous can't see tagged.
+        - visibility: only private_to_principal and shareable_summary allowed.
         """
-        # Split by entry separator
         entries = re.split(r"^---$", content, flags=re.MULTILINE)
         filtered: list[str] = []
 
@@ -332,21 +347,40 @@ class PromptBuilder:
             if not stripped:
                 continue
 
-            # Check scope metadata on first line only (not body content)
             first_line = stripped.split("\n", 1)[0]
+
+            # scope check (existing)
             scope_match = re.search(r"scope:\s*(\S+)", first_line)
             if scope_match:
-                entry_scope = scope_match.group(1).rstrip(",)")
-                if entry_scope != scope_key:
+                if scope_match.group(1).rstrip(",)") != scope_key:
                     continue
-            else:
-                # No scope metadata → treat as 'main' (old data compatibility)
-                if scope_key != "main":
-                    continue
+            elif scope_key != "main":
+                continue
+
+            # visibility check (P2-M3b) — must match D5 deny-by-default
+            vis_match = re.search(r"visibility:\s*(\S+)", first_line)
+            if vis_match:
+                entry_vis = vis_match.group(1).rstrip(",)")
+                if entry_vis not in _PROMPT_ALLOWED_VISIBILITY:
+                    continue  # shared_in_space or unknown → deny
+            # no visibility metadata → legacy, treated as private_to_principal (allowed)
+
+            # principal check (P2-M3b) — must match D5 search WHERE
+            principal_match = re.search(r"principal:\s*(\S+)", first_line)
+            if principal_match:
+                entry_principal = principal_match.group(1).rstrip(",)")
+                if principal_id is None:
+                    continue  # anonymous caller cannot see principal-tagged entries
+                if entry_principal != principal_id:
+                    continue  # cross-principal: skip
+            # no principal metadata → legacy entry, visible to all (D5 consistency)
 
             filtered.append(stripped)
 
         return "\n\n".join(filtered)
+
+    # Keep old name as alias for backward compatibility with tests
+    _filter_entries_by_scope = _filter_entries
 
     def _read_workspace_file(self, filename: str) -> str:
         """Read a file from workspace. Returns empty string if not found."""

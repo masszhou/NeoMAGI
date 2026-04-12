@@ -22,6 +22,7 @@ async def try_compact(
     lock_token: str,
     scope_key: str,
     task_state_text: str | None = None,
+    principal_id: str | None = None,
 ) -> CompactionResult | None:
     """Execute compaction with full error handling.
 
@@ -54,6 +55,7 @@ async def try_compact(
         last_compaction_seq=last_compaction_seq,
         lock_token=lock_token,
         scope_key=scope_key,
+        principal_id=principal_id,
     )
 
 
@@ -123,6 +125,7 @@ async def _finalize_compaction_result(
     last_compaction_seq: int | None,
     lock_token: str,
     scope_key: str,
+    principal_id: str | None = None,
 ) -> CompactionResult:
     if result.status == "noop":
         _log_compaction_noop(session_id, last_compaction_seq)
@@ -136,7 +139,7 @@ async def _finalize_compaction_result(
     except Exception:
         _agent_logger().exception("compaction_store_failed", session_id=session_id)
         return result
-    await _persist_flush_candidates(loop, result, session_id, scope_key)
+    await _persist_flush_candidates(loop, result, session_id, scope_key, principal_id)
     _log_compaction_complete(session_id, result)
     return result
 
@@ -174,12 +177,14 @@ async def _persist_flush_candidates(
     result: CompactionResult,
     session_id: str,
     scope_key: str,
+    principal_id: str | None = None,
 ) -> None:
     if result.memory_flush_candidates and loop._memory_writer:
         await loop._persist_flush_candidates(
             result.memory_flush_candidates,
             session_id,
             scope_key=scope_key,
+            principal_id=principal_id,
         )
 
 

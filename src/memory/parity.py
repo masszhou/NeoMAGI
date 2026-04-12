@@ -86,6 +86,8 @@ class MemoryParityChecker:
                 le["scope_key"] != we.get("scope_key")
                 or le["source"] != we.get("source")
                 or le["source_session_id"] != we.get("source_session_id")
+                or le.get("principal_id") != we.get("principal_id")
+                or le.get("visibility") != we.get("visibility", "private_to_principal")
             ):
                 metadata_mismatch.append(eid)
 
@@ -135,6 +137,8 @@ class MemoryParityChecker:
                     "scope_key": entry_scope,
                     "source": meta.get("source"),
                     "source_session_id": meta.get("source_session_id"),
+                    "principal_id": meta.get("principal"),
+                    "visibility": meta.get("visibility", "private_to_principal"),
                 }
 
         return entries

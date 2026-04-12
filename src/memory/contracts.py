@@ -26,3 +26,4 @@ class ResolvedFlushCandidate:
     source_session_id: str
     confidence: float = 0.0
     constraint_tags: tuple[str, ...] = ()
+    principal_id: str | None = None  # P2-M3b: propagated from RequestState

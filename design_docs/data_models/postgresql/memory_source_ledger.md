@@ -35,6 +35,8 @@ doc_id_assigned_at: 2026-04-12T10:52:39+02:00
 | `source_session_id` | `VARCHAR(256)` NULL | 来源 session provenance。 |
 | `content` | `TEXT` NOT NULL | 原文正文。 |
 | `metadata` | `JSONB` NOT NULL, default `{}` | 扩展元数据预留（V1 不使用）。 |
+| `principal_id` | `VARCHAR(36)` NULL | 写入者 principal identity（P2-M3b）。NULL = 匿名/no-auth/legacy。 |
+| `visibility` | `VARCHAR(32)` NOT NULL, default `private_to_principal`, CHECK IN (...) | 可见性级别（P2-M3b）。V1 值：`private_to_principal`（活跃）、`shareable_summary`（reserved）、`shared_in_space`（reserved, deny-by-default）。 |
 | `created_at` | `TIMESTAMPTZ` NOT NULL, default `now()` | 写入时间。 |
 
 ## 索引
@@ -46,6 +48,7 @@ doc_id_assigned_at: 2026-04-12T10:52:39+02:00
 | `idx_memory_source_ledger_scope` | `scope_key` | btree | scope 过滤 |
 | `idx_memory_source_ledger_created_at` | `created_at` | btree | 时间范围扫描 |
 | `uq_memory_source_ledger_entry_append` | `entry_id` WHERE `event_type = 'append'` | partial unique | 同一 entry 只允许一条 append |
+| `idx_memory_source_ledger_principal` | `principal_id` | btree | 按 principal 查询（P2-M3b） |
 
 ## 当前写入语义
 

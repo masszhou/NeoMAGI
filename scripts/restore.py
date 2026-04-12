@@ -233,10 +233,19 @@ async def _reindex_memory_entries(
     results: list[tuple[str, str]],
 ) -> None:
     from src.memory.indexer import MemoryIndexer
+    from src.memory.ledger import MemoryLedgerWriter
 
     indexer = MemoryIndexer(session_factory, memory_settings)
-    entry_count = await indexer.reindex_all()
-    results.append(("7. reindex_all", f"OK ({entry_count} entries)"))
+    ledger = MemoryLedgerWriter(session_factory)
+
+    # Prefer ledger-based reindex; fallback to workspace if ledger is empty
+    ledger_count = await ledger.count()
+    if ledger_count > 0:
+        entry_count = await indexer.reindex_all(ledger=ledger)
+        results.append(("7. reindex_all", f"OK ({entry_count} entries, ledger-based)"))
+    else:
+        entry_count = await indexer.reindex_all()
+        results.append(("7. reindex_all", f"OK ({entry_count} entries, workspace-based fallback)"))
     logger.info("restore_step_7_done", entries=entry_count)
 
 

@@ -48,6 +48,7 @@ async def ensure_schema(engine: AsyncEngine, schema: str = DB_SCHEMA) -> None:
         await _create_memory_source_ledger_table(conn, schema)
         await _create_principal_tables(conn, schema)
         await _add_principal_id_to_sessions(conn, schema)
+        await _add_principal_visibility_to_memory(conn, schema)
 
     logger.info("db_schema_ensured", schema=schema)
 
@@ -270,6 +271,8 @@ def _memory_source_ledger_ddl(schema: str) -> list[str]:
             source_session_id VARCHAR(256),
             content TEXT NOT NULL,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            principal_id VARCHAR(36),
+            visibility VARCHAR(32) NOT NULL DEFAULT 'private_to_principal',
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )""",
         f"""CREATE INDEX IF NOT EXISTS idx_memory_source_ledger_entry_id
@@ -289,6 +292,8 @@ def _memory_source_ledger_ddl(schema: str) -> list[str]:
                     WHERE event_type = 'append';
             END IF;
         END $$""",
+        f"""CREATE INDEX IF NOT EXISTS idx_memory_source_ledger_principal
+            ON {schema}.memory_source_ledger (principal_id)""",
     ]
 
 
@@ -357,6 +362,45 @@ async def _add_principal_id_to_sessions(conn, schema: str) -> None:
                 ON DELETE RESTRICT;
         END IF;
     END $$"""))
+
+
+async def _add_principal_visibility_to_memory(conn, schema: str) -> None:
+    """Add principal_id + visibility columns to memory tables (idempotent, P2-M3b)."""
+    # memory_source_ledger
+    await conn.execute(text(
+        f"ALTER TABLE {schema}.memory_source_ledger"
+        f" ADD COLUMN IF NOT EXISTS principal_id VARCHAR(36)"
+    ))
+    await conn.execute(text(
+        f"ALTER TABLE {schema}.memory_source_ledger"
+        f" ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) NOT NULL"
+        f" DEFAULT 'private_to_principal'"
+    ))
+    # CHECK constraint (idempotent via IF NOT EXISTS pattern)
+    await conn.execute(text(f"""DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'ck_memory_source_ledger_visibility'
+              AND table_schema = '{schema}'
+        ) THEN
+            ALTER TABLE {schema}.memory_source_ledger
+                ADD CONSTRAINT ck_memory_source_ledger_visibility
+                CHECK (visibility IN (
+                    'private_to_principal', 'shareable_summary', 'shared_in_space'
+                ));
+        END IF;
+    END $$"""))
+
+    # memory_entries
+    await conn.execute(text(
+        f"ALTER TABLE {schema}.memory_entries"
+        f" ADD COLUMN IF NOT EXISTS principal_id VARCHAR(36)"
+    ))
+    await conn.execute(text(
+        f"ALTER TABLE {schema}.memory_entries"
+        f" ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) NOT NULL"
+        f" DEFAULT 'private_to_principal'"
+    ))
 
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker:

@@ -135,6 +135,7 @@ class AgentLoop:
         current_user_seq: int,
         lock_token: str,
         scope_key: str,
+        principal_id: str | None = None,
     ) -> CompactionResult | None:
         return await _try_compact_impl(
             self,
@@ -147,6 +148,7 @@ class AgentLoop:
             current_user_seq=current_user_seq,
             lock_token=lock_token,
             scope_key=scope_key,
+            principal_id=principal_id,
         )
 
     def _emergency_trim(
@@ -168,6 +170,7 @@ class AgentLoop:
         session_id: str,
         *,
         scope_key: str,
+        principal_id: str | None = None,
     ) -> list:
         """Fetch memory recall results for prompt injection."""
         if not self._memory_searcher:
@@ -193,6 +196,7 @@ class AgentLoop:
                 scope_key=scope_key,
                 limit=max_results,
                 min_score=min_score,
+                principal_id=principal_id,
             )
             if results:
                 logger.info(
@@ -212,6 +216,7 @@ class AgentLoop:
         session_id: str,
         *,
         scope_key: str,
+        principal_id: str | None = None,
     ) -> None:
         """Persist flush candidates to daily notes via MemoryWriter."""
         try:
@@ -222,6 +227,7 @@ class AgentLoop:
                     source_session_id=candidate.source_session_id,
                     confidence=candidate.confidence,
                     constraint_tags=tuple(candidate.constraint_tags),
+                    principal_id=principal_id,
                 )
                 for candidate in candidates
             ]

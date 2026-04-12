@@ -326,6 +326,7 @@ async def _handle_publish_flush(loop: Any, state: Any, result: dict) -> None:
             candidates,
             state.session_id,
             scope_key=state.scope_key,
+            principal_id=getattr(state, "principal_id", None),
         )
 
 

@@ -34,6 +34,8 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 | `source_path` | `VARCHAR(256)` NULL | 来源文件路径。 |
 | `source_date` | `DATE` NULL | 来源日期，常用于 daily note。 |
 | `source_session_id` | `VARCHAR(256)` NULL | 产生该条 memory 的来源会话 ID。 |
+| `principal_id` | `VARCHAR(36)` NULL | 写入者 principal identity（P2-M3b）。NULL = 匿名/no-auth/legacy。 |
+| `visibility` | `VARCHAR(32)` NOT NULL, default `private_to_principal` | 可见性级别（P2-M3b）。与 `memory_source_ledger` 对齐。 |
 | `title` | `TEXT` NOT NULL | 检索标题。 |
 | `content` | `TEXT` NOT NULL | 检索正文。 |
 | `tags` | `TEXT[]` | 标签数组。 |

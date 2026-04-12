@@ -208,11 +208,15 @@ class TestReindexCli:
 
         mock_indexer.reindex_all = track_reindex
 
+        mock_ledger = AsyncMock()
+        mock_ledger.count = AsyncMock(return_value=0)
+
         with (
             patch("src.config.settings.get_settings", return_value=mock_settings),
             patch("src.session.database.create_db_engine", return_value=mock_engine),
             patch("src.session.database.make_session_factory", return_value=MagicMock()),
             patch("src.memory.indexer.MemoryIndexer", return_value=mock_indexer),
+            patch("src.memory.ledger.MemoryLedgerWriter", return_value=mock_ledger),
         ):
             code = await _run_reindex("main")
 

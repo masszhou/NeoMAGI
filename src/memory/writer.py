@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# P2-M3b visibility policy constants
+_ALLOWED_VISIBILITY = frozenset({"private_to_principal", "shareable_summary", "shared_in_space"})
+_WRITABLE_VISIBILITY = frozenset({"private_to_principal", "shareable_summary"})
 
 _uuid7_last_ms: int = 0
 _uuid7_seq: int = 0
@@ -100,6 +103,8 @@ class MemoryWriter:
         source: str = "user",
         source_session_id: str | None = None,
         target_date: date | None = None,
+        principal_id: str | None = None,
+        visibility: str = "private_to_principal",
     ) -> MemoryWriteResult:
         """Append a timestamped entry to daily note file and/or DB ledger.
 
@@ -108,8 +113,14 @@ class MemoryWriter:
 
         Returns: MemoryWriteResult with write outcome details.
         Raises: LedgerWriteError if ledger write fails (ledger-wired mode).
-        Raises: MemoryWriteError if projection write fails (no-ledger fallback mode).
+        Raises: MemoryWriteError if projection write fails or visibility invalid.
         """
+        # Visibility fail-closed check (D4)
+        if visibility not in _ALLOWED_VISIBILITY:
+            raise MemoryWriteError(f"Unknown visibility: {visibility}")
+        if visibility not in _WRITABLE_VISIBILITY:
+            raise MemoryWriteError(f"Visibility '{visibility}' is not yet writable")
+
         today = target_date or date.today()
         filename = f"{today.isoformat()}.md"
         filepath = self._workspace_path / "memory" / filename
@@ -121,6 +132,9 @@ class MemoryWriter:
             f"source: {source}",
             f"scope: {scope_key}",
         ]
+        if principal_id is not None:
+            meta_parts.append(f"principal: {principal_id}")
+        meta_parts.append(f"visibility: {visibility}")
         if source_session_id:
             meta_parts.append(f"source_session_id: {source_session_id}")
         meta_line = f"[{now.strftime('%H:%M')}] ({', '.join(meta_parts)})"
@@ -132,6 +146,7 @@ class MemoryWriter:
             ledger_written = await self._ledger.append(
                 entry_id=entry_id, content=text, scope_key=scope_key,
                 source=source, source_session_id=source_session_id,
+                principal_id=principal_id, visibility=visibility,
             )  # LedgerWriteError propagates
 
             # Idempotent no-op: ledger already has this entry_id → skip projection
@@ -158,11 +173,15 @@ class MemoryWriter:
                 scope_key=scope_key, source=source, bytes_written=len(entry_bytes),
             )
 
-        # Incremental index (best-effort, both modes)
-        if projection_written:
+        # Incremental index: driven by ledger_written in ledger-wired mode (D13),
+        # by projection_written in no-ledger fallback mode.
+        should_index = ledger_written if self._ledger else projection_written
+        if should_index:
+            source_path = filepath if projection_written else None
             await self._try_incremental_index(
-                filepath, text, scope_key, today,
+                source_path, text, scope_key, today,
                 entry_id=entry_id, source_session_id=source_session_id,
+                principal_id=principal_id, visibility=visibility,
             )
 
         return MemoryWriteResult(
@@ -217,18 +236,25 @@ class MemoryWriter:
             )
 
     async def _try_incremental_index(
-        self, filepath: Path, text: str, scope_key: str, today: date,
+        self, filepath: Path | None, text: str, scope_key: str, today: date,
         *, entry_id: str | None = None, source_session_id: str | None = None,
+        principal_id: str | None = None, visibility: str = "private_to_principal",
     ) -> None:
-        """Best-effort incremental index after write."""
+        """Best-effort incremental index after write.
+
+        filepath may be None for ledger-only entries (projection failed/skipped).
+        """
         if not self._indexer:
             return
         try:
-            rel_path = str(filepath.relative_to(self._workspace_path))
+            rel_path = (
+                str(filepath.relative_to(self._workspace_path)) if filepath else None
+            )
             await self._indexer.index_entry_direct(
                 content=text, scope_key=scope_key, source_type="daily_note",
                 source_path=rel_path, source_date=today,
                 entry_id=entry_id, source_session_id=source_session_id,
+                principal_id=principal_id, visibility=visibility,
             )
         except Exception:
             logger.warning("memory_index_after_write_failed",
@@ -265,6 +291,7 @@ class MemoryWriter:
                     scope_key=candidate.scope_key,
                     source="compaction_flush",
                     source_session_id=candidate.source_session_id,
+                    principal_id=candidate.principal_id,
                 )
                 if result.ledger_written or result.projection_written:
                     written += 1

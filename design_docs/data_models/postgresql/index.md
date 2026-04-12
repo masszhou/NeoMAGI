@@ -31,13 +31,13 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 
 | 表 | 用途 | 相关表 |
 | --- | --- | --- |
-| [`memory_source_ledger`](./memory_source_ledger.md) | Append-only memory truth (ADR 0060) | workspace daily notes 和 `memory_entries` 是 projection |
+| [`memory_source_ledger`](./memory_source_ledger.md) | Append-only memory truth (ADR 0060)；P2-M3b 新增 `principal_id` + `visibility` 列 | workspace daily notes 和 `memory_entries` 是 projection |
 
 ### Retrieval Plane
 
 | 表 | 用途 | 相关表 |
 | --- | --- | --- |
-| [`memory_entries`](./memory_entries.md) | workspace memory 文件的检索投影；不是最终真源 | 无硬 FK；可选记录 `source_session_id` |
+| [`memory_entries`](./memory_entries.md) | workspace memory 文件的检索投影（P2-M3b 新增 `principal_id` + `visibility` 列）；不是最终真源 | 无硬 FK；可选记录 `source_session_id` |
 
 ### Governance Ledger
 

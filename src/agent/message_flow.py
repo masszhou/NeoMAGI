@@ -111,15 +111,17 @@ async def _initialize_request_state(
         lock_token=lock_token,
     )
     scope_key = _resolve_scope_key(loop, session_id, identity, dm_scope)
+    principal_id = identity.principal_id if identity else None
     mode = await loop._session_manager.get_mode(session_id)
     tools_schema, tools_schema_list = _resolve_tools_schema(loop, mode)
     last_compaction_seq, compacted_context = await _load_compaction_state(loop, session_id)
-    recall_results = await loop._fetch_memory_recall(session_id, scope_key=scope_key)
+    recall_results = await loop._fetch_memory_recall(
+        session_id, scope_key=scope_key, principal_id=principal_id,
+    )
     loop._contract = maybe_refresh_contract(loop._contract, loop._workspace_dir)
 
     skill_result = await _resolve_skills_for_request(loop, content, mode, identity)
     procedure_result = await _resolve_procedure_for_request(loop, session_id, mode)
-    principal_id = identity.principal_id if identity else None
 
     return _assemble_request_state(
         loop, session_id, lock_token, mode, scope_key, user_msg.seq,
@@ -156,7 +158,7 @@ def _assemble_request_state(
     )
     system_prompt = _build_system_prompt(
         loop, session_id, mode, compacted_context, scope_key, recall_results,
-        skill_view, procedure_view,
+        skill_view, procedure_view, principal_id=principal_id,
     )
     max_compactions = loop._settings.max_compactions_per_request if loop._settings else 2
     return RequestState(
@@ -369,6 +371,7 @@ async def _apply_compaction(loop: AgentLoop, state: RequestState, budget_status:
         current_user_seq=state.current_user_seq,
         lock_token=state.lock_token,
         scope_key=state.scope_key,
+        principal_id=state.principal_id,
     )
     state.compaction_count += 1
     if result is None or result.status == "noop":
@@ -389,6 +392,7 @@ def _apply_compaction_result(loop: AgentLoop, state: RequestState, result: Any) 
         state.recall_results,
         state.skill_view,
         state.procedure_view,
+        principal_id=state.principal_id,
     )
 
 
@@ -535,6 +539,7 @@ def _build_system_prompt(
     recall_results: list[Any],
     skill_view: Any = None,
     procedure_view: Any = None,
+    principal_id: str | None = None,
 ) -> str:
     return loop._prompt_builder.build(
         session_id,
@@ -544,6 +549,7 @@ def _build_system_prompt(
         recall_results=recall_results,
         skill_view=skill_view,
         procedure_view=procedure_view,
+        principal_id=principal_id,
     )
 
 

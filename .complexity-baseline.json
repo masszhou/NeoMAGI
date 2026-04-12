@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-10T22:16:18+00:00",
+  "generated_at": "2026-04-12T21:08:11+00:00",
   "policy_version": 1,
   "thresholds": {
     "prod": {
@@ -30,5 +30,167 @@
       "nesting_block": 3
     }
   },
-  "block_findings": []
+  "block_findings": [
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/agent/agent.py",
+      "actual": 52,
+      "limit": 50,
+      "fingerprint": "function_lines::src/agent/agent.py::AgentLoop.__init__::53",
+      "symbol": "AgentLoop.__init__",
+      "line": 53
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_branches",
+      "path": "src/agent/prompt_builder.py",
+      "actual": 10,
+      "limit": 6,
+      "fingerprint": "function_branches::src/agent/prompt_builder.py::PromptBuilder._filter_entries::333",
+      "symbol": "PromptBuilder._filter_entries",
+      "line": 333
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/channels/telegram.py",
+      "actual": 56,
+      "limit": 50,
+      "fingerprint": "function_lines::src/channels/telegram.py::TelegramAdapter._enrich_identity_with_principal::180",
+      "symbol": "TelegramAdapter._enrich_identity_with_principal",
+      "line": 180
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "file_lines",
+      "path": "src/frontend/src/stores/chat.ts",
+      "actual": 802,
+      "limit": 800,
+      "fingerprint": "file_lines::src/frontend/src/stores/chat.ts"
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "file_lines",
+      "path": "src/gateway/app.py",
+      "actual": 949,
+      "limit": 800,
+      "fingerprint": "file_lines::src/gateway/app.py"
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/gateway/app.py",
+      "actual": 68,
+      "limit": 50,
+      "fingerprint": "function_lines::src/gateway/app.py::lifespan::468",
+      "symbol": "lifespan",
+      "line": 468
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/gateway/app.py",
+      "actual": 55,
+      "limit": 50,
+      "fingerprint": "function_lines::src/gateway/app.py::_authenticate_ws::728",
+      "symbol": "_authenticate_ws",
+      "line": 728
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_branches",
+      "path": "src/infra/doctor.py",
+      "actual": 7,
+      "limit": 6,
+      "fingerprint": "function_branches::src/infra/doctor.py::_check_memory_ledger_parity::338",
+      "symbol": "_check_memory_ledger_parity",
+      "line": 338
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/infra/doctor.py",
+      "actual": 66,
+      "limit": 50,
+      "fingerprint": "function_lines::src/infra/doctor.py::_check_memory_ledger_parity::338",
+      "symbol": "_check_memory_ledger_parity",
+      "line": 338
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_branches",
+      "path": "src/infra/preflight.py",
+      "actual": 8,
+      "limit": 6,
+      "fingerprint": "function_branches::src/infra/preflight.py::run_preflight::41",
+      "symbol": "run_preflight",
+      "line": 41
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/memory/ledger.py",
+      "actual": 65,
+      "limit": 50,
+      "fingerprint": "function_lines::src/memory/ledger.py::MemoryLedgerWriter.append::37",
+      "symbol": "MemoryLedgerWriter.append",
+      "line": 37
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_branches",
+      "path": "src/memory/parity.py",
+      "actual": 7,
+      "limit": 6,
+      "fingerprint": "function_branches::src/memory/parity.py::MemoryParityChecker._scan_workspace::104",
+      "symbol": "MemoryParityChecker._scan_workspace",
+      "line": 104
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_branches",
+      "path": "src/memory/writer.py",
+      "actual": 8,
+      "limit": 6,
+      "fingerprint": "function_branches::src/memory/writer.py::MemoryWriter.append_daily_note::98",
+      "symbol": "MemoryWriter.append_daily_note",
+      "line": 98
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/memory/writer.py",
+      "actual": 95,
+      "limit": 50,
+      "fingerprint": "function_lines::src/memory/writer.py::MemoryWriter.append_daily_note::98",
+      "symbol": "MemoryWriter.append_daily_note",
+      "line": 98
+    },
+    {
+      "severity": "block",
+      "group": "prod",
+      "metric": "function_lines",
+      "path": "src/session/manager.py",
+      "actual": 81,
+      "limit": 50,
+      "fingerprint": "function_lines::src/session/manager.py::SessionManager.claim_session_for_principal::208",
+      "symbol": "SessionManager.claim_session_for_principal",
+      "line": 208
+    }
+  ]
 }

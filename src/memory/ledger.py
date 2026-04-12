@@ -43,6 +43,8 @@ class MemoryLedgerWriter:
         source: str = "user",
         source_session_id: str | None = None,
         metadata: dict | None = None,
+        principal_id: str | None = None,
+        visibility: str = "private_to_principal",
     ) -> bool:
         """Append a single 'append' event to the source ledger.
 
@@ -58,10 +60,11 @@ class MemoryLedgerWriter:
         sql = text(f"""
             INSERT INTO {DB_SCHEMA}.memory_source_ledger
                 (event_id, entry_id, event_type, scope_key, source,
-                 source_session_id, content, metadata)
+                 source_session_id, content, metadata, principal_id, visibility)
             VALUES
                 (:event_id, :entry_id, 'append', :scope_key, :source,
-                 :source_session_id, :content, CAST(:metadata AS jsonb))
+                 :source_session_id, :content, CAST(:metadata AS jsonb),
+                 :principal_id, :visibility)
             ON CONFLICT (entry_id) WHERE event_type = 'append'
             DO NOTHING
             RETURNING event_id
@@ -77,6 +80,8 @@ class MemoryLedgerWriter:
                     "source_session_id": source_session_id,
                     "content": content,
                     "metadata": metadata_json,
+                    "principal_id": principal_id,
+                    "visibility": visibility,
                 })
                 row = result.fetchone()
                 await db.commit()
@@ -138,14 +143,13 @@ class MemoryLedgerWriter:
             result = await db.execute(sql, params)
             return [row[0] for row in result]
 
-    async def get_entries_for_parity(
-        self,
-        *,
-        scope_key: str | None = None,
-    ) -> dict[str, dict]:
-        """Return {entry_id: {content, scope_key, source, source_session_id}} for parity.
+    async def get_current_view(
+        self, *, scope_key: str | None = None,
+    ) -> list[dict]:
+        """Return all append events with full fields for reindex.
 
-        Only returns 'append' events (V1 primary records).
+        Returns list of dicts with: entry_id, content, scope_key, source,
+        source_session_id, principal_id, visibility, created_at.
         """
         conditions = ["event_type = 'append'"]
         params: dict = {}
@@ -156,7 +160,50 @@ class MemoryLedgerWriter:
 
         where = " AND ".join(conditions)
         sql = text(
-            f"SELECT entry_id, content, scope_key, source, source_session_id"
+            f"SELECT entry_id, content, scope_key, source, source_session_id,"
+            f" principal_id, visibility, created_at"
+            f" FROM {DB_SCHEMA}.memory_source_ledger"
+            f" WHERE {where}"
+            f" ORDER BY created_at"
+        )
+
+        async with self._db_factory() as db:
+            result = await db.execute(sql, params)
+            return [
+                {
+                    "entry_id": row.entry_id,
+                    "content": row.content,
+                    "scope_key": row.scope_key,
+                    "source": row.source,
+                    "source_session_id": row.source_session_id,
+                    "principal_id": row.principal_id,
+                    "visibility": row.visibility,
+                    "created_at": row.created_at,
+                }
+                for row in result
+            ]
+
+    async def get_entries_for_parity(
+        self,
+        *,
+        scope_key: str | None = None,
+    ) -> dict[str, dict]:
+        """Return {entry_id: {content, scope_key, source, source_session_id, ...}} for parity.
+
+        Only returns 'append' events (V1 primary records).
+        Includes principal_id + visibility for P2-M3b parity comparison.
+        """
+        conditions = ["event_type = 'append'"]
+        params: dict = {}
+
+        if scope_key is not None:
+            conditions.append("scope_key = :scope_key")
+            params["scope_key"] = scope_key
+
+        where = " AND ".join(conditions)
+        sql = text(
+            f"SELECT entry_id, content, scope_key, source, source_session_id,"
+            f" principal_id, visibility"
             f" FROM {DB_SCHEMA}.memory_source_ledger"
             f" WHERE {where}"
         )
@@ -169,6 +216,8 @@ class MemoryLedgerWriter:
                     "scope_key": row.scope_key,
                     "source": row.source,
                     "source_session_id": row.source_session_id,
+                    "principal_id": row.principal_id,
+                    "visibility": row.visibility,
                 }
                 for row in result
             }

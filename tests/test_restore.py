@@ -154,7 +154,7 @@ def _make_db_patches(execution_log: list[str]):
 
 
 def _make_service_patches(execution_log: list[str], reindex_count: int):
-    """Patches for EvolutionEngine and MemoryIndexer."""
+    """Patches for EvolutionEngine, MemoryIndexer, and MemoryLedgerWriter."""
     mock_evolution = AsyncMock()
 
     async def track_reconcile():
@@ -170,9 +170,14 @@ def _make_service_patches(execution_log: list[str], reindex_count: int):
 
     mock_indexer.reindex_all = track_reindex
 
+    # P2-M3b: MemoryLedgerWriter is now used by _reindex_memory_entries
+    mock_ledger = AsyncMock()
+    mock_ledger.count = AsyncMock(return_value=0)  # empty ledger → workspace fallback
+
     return (
         patch("src.memory.evolution.EvolutionEngine", return_value=mock_evolution),
         patch("src.memory.indexer.MemoryIndexer", return_value=mock_indexer),
+        patch("src.memory.ledger.MemoryLedgerWriter", return_value=mock_ledger),
     )
 
 
@@ -208,7 +213,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake archive")
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             await run_restore(db_dump, ws_archive)
 
         assert execution_log == [
@@ -252,7 +258,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake")
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             with pytest.raises(SystemExit) as exc_info:
                 await run_restore(db_dump, ws_archive)
             assert exc_info.value.code == 1
@@ -271,7 +278,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake")
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             await run_restore(db_dump, ws_archive)
 
         ensure_idx = execution_log.index("step3_ensure_schema")
@@ -305,7 +313,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake")
 
         with patches[0], patches[1], patches[2], patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             await run_restore(db_dump, ws_archive)
 
         # memory/ dir and MEMORY.md should be cleared (by step 3.5)
@@ -344,7 +353,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake")
 
         with patches[0], patches[1], mock_subprocess_override, patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             await run_restore(db_dump, ws_archive)
 
         assert len(tar_commands) == 1
@@ -389,7 +399,8 @@ class TestRunRestore:
         ws_archive.write_bytes(b"fake")
 
         with patches[0], patches[1], mock_subprocess_override, patches[3], patches[4], \
-             patches[5], patches[6], patches[7], patches[8], patches[9]:
+             patches[5], patches[6], patches[7], patches[8], patches[9], \
+             patches[10]:
             await run_restore(db_dump, ws_archive)
 
         assert "step8_preflight" in execution_log

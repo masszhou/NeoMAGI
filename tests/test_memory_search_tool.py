@@ -82,7 +82,7 @@ class TestMemorySearchToolExecute:
         assert result["results"][0]["content"] == "User prefers dark mode"
         assert result["results"][0]["score"] == 0.8
         searcher.search.assert_called_once_with(
-            query="dark mode", scope_key="main", limit=10
+            query="dark mode", scope_key="main", limit=10, principal_id=None
         )
 
     @pytest.mark.asyncio
@@ -96,7 +96,7 @@ class TestMemorySearchToolExecute:
         await tool.execute({"query": "test"}, ctx)
 
         searcher.search.assert_called_once_with(
-            query="test", scope_key="main", limit=10
+            query="test", scope_key="main", limit=10, principal_id=None
         )
 
     @pytest.mark.asyncio
@@ -133,7 +133,7 @@ class TestMemorySearchToolExecute:
         await tool.execute({"query": "test", "limit": 5}, ctx)
 
         searcher.search.assert_called_once_with(
-            query="test", scope_key="main", limit=5
+            query="test", scope_key="main", limit=5, principal_id=None
         )
 
     @pytest.mark.asyncio
@@ -146,5 +146,5 @@ class TestMemorySearchToolExecute:
         await tool.execute({"query": "test"}, None)
 
         searcher.search.assert_called_once_with(
-            query="test", scope_key="main", limit=10
+            query="test", scope_key="main", limit=10, principal_id=None
         )

@@ -101,24 +101,82 @@ class MemoryIndexer:
         )
         return len(sections)
 
-    async def reindex_all(self, *, scope_key: str = "main") -> int:
-        """Full reindex: scan workspace/memory/ + MEMORY.md."""
+    async def reindex_all(
+        self, *, scope_key: str = "main", ledger: object | None = None,
+    ) -> int:
+        """Full reindex: daily_note from ledger or workspace, curated from files.
+
+        P2-M3b: when ledger is provided, daily_note entries are rebuilt from
+        the DB ledger current view (with principal_id + visibility).
+        Curated memory (MEMORY.md) always reindexes from workspace files.
+        """
         total = 0
         workspace = self._settings.workspace_path
-        memory_dir = workspace / "memory"
 
-        if memory_dir.is_dir():
-            for filepath in sorted(memory_dir.glob("*.md")):
-                count = await self.index_daily_note(filepath, scope_key=scope_key)
-                total += count
+        if ledger is not None:
+            # Ledger-based reindex for daily_note entries
+            count = await self.reindex_from_ledger(ledger, scope_key=scope_key)
+            total += count
+        else:
+            # Workspace-based fallback for daily_note entries
+            memory_dir = workspace / "memory"
+            if memory_dir.is_dir():
+                for filepath in sorted(memory_dir.glob("*.md")):
+                    count = await self.index_daily_note(filepath, scope_key=scope_key)
+                    total += count
 
+        # Curated memory always from workspace files
         memory_md = workspace / "MEMORY.md"
         if memory_md.is_file():
             count = await self.index_curated_memory(memory_md, scope_key=scope_key)
             total += count
 
-        logger.info("reindex_complete", total_entries=total, scope_key=scope_key)
+        logger.info("reindex_complete", total_entries=total, scope_key=scope_key,
+                     ledger_based=ledger is not None)
         return total
+
+    async def reindex_from_ledger(
+        self, ledger: object, *, scope_key: str | None = None,
+    ) -> int:
+        """Rebuild memory_entries from ledger current view (ADR 0060, P2-M3b).
+
+        Deletes daily_note entries and re-inserts from ledger. Curated entries
+        are preserved (handled separately by reindex_all).
+        """
+        entries = await ledger.get_current_view(scope_key=scope_key)
+
+        async with self._db_factory() as db:
+            # Delete daily_note entries (curated entries preserved)
+            del_stmt = delete(MemoryEntry).where(
+                MemoryEntry.source_type == "daily_note"
+            )
+            if scope_key is not None:
+                del_stmt = del_stmt.where(MemoryEntry.scope_key == scope_key)
+            await db.execute(del_stmt)
+
+            for e in entries:
+                source_date = e["created_at"].date() if e.get("created_at") else None
+                entry = MemoryEntry(
+                    entry_id=e["entry_id"],
+                    scope_key=e["scope_key"],
+                    source_type="daily_note",
+                    source_path=None,
+                    source_date=source_date,
+                    source_session_id=e.get("source_session_id"),
+                    principal_id=e.get("principal_id"),
+                    visibility=e.get("visibility", "private_to_principal"),
+                    title="",
+                    content=e["content"],
+                    tags=[],
+                    confidence=None,
+                )
+                db.add(entry)
+
+            await db.commit()
+
+        logger.info("reindex_from_ledger_complete", entries=len(entries),
+                     scope_key=scope_key)
+        return len(entries)
 
     async def index_entry_direct(
         self,
@@ -133,6 +191,8 @@ class MemoryIndexer:
         confidence: float | None = None,
         entry_id: str | None = None,
         source_session_id: str | None = None,
+        principal_id: str | None = None,
+        visibility: str = "private_to_principal",
     ) -> int:
         """Index a single entry directly (used by writer for incremental index)."""
         async with self._db_factory() as db:
@@ -147,6 +207,8 @@ class MemoryIndexer:
                 tags=tags or [],
                 confidence=confidence,
                 source_session_id=source_session_id,
+                principal_id=principal_id,
+                visibility=visibility,
             )
             db.add(entry)
             await db.commit()
@@ -203,25 +265,35 @@ class MemoryIndexer:
         Only the first line matching ``[HH:MM]`` is considered; body content
         is never scanned, preventing false positives from user prose.
 
-        Returns dict with keys: entry_id, source, scope, source_session_id.
-        Missing fields resolve to None (entry_id, source, source_session_id) or
-        default_scope (scope). Backward-compatible with old format.
+        Returns dict with keys: entry_id, source, scope, source_session_id,
+        principal, visibility.
+        Missing fields resolve to None (entry_id, source, source_session_id, principal)
+        or default_scope (scope) or "private_to_principal" (visibility).
+        Backward-compatible with old format.
         """
         first_line = entry_text.split("\n", 1)[0]
         if not re.match(r"^\[[\d:]+\]", first_line):
             return {
                 "entry_id": None, "source": None,
                 "scope": default_scope, "source_session_id": None,
+                "principal": None, "visibility": "private_to_principal",
             }
         entry_id_m = re.search(r"entry_id:\s*(\S+)", first_line)
         source_m = re.search(r"source:\s*(\S+)", first_line)
         scope_m = re.search(r"scope:\s*(\S+)", first_line)
         ssid_m = re.search(r"source_session_id:\s*(\S+)", first_line)
+        principal_m = re.search(r"principal:\s*(\S+)", first_line)
+        visibility_m = re.search(r"visibility:\s*(\S+)", first_line)
         return {
             "entry_id": entry_id_m.group(1).rstrip(",)") if entry_id_m else None,
             "source": source_m.group(1).rstrip(",)") if source_m else None,
             "scope": scope_m.group(1).rstrip(",)") if scope_m else default_scope,
             "source_session_id": ssid_m.group(1).rstrip(",)") if ssid_m else None,
+            "principal": principal_m.group(1).rstrip(",)") if principal_m else None,
+            "visibility": (
+                visibility_m.group(1).rstrip(",)") if visibility_m
+                else "private_to_principal"
+            ),
         }
 
     @staticmethod

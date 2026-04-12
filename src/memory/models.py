@@ -41,6 +41,8 @@ class MemoryEntry(Base):
             "search_vector",
             postgresql_using="gin",
         ),
+        Index("idx_memory_entries_principal", "principal_id"),  # P2-M3b
+        Index("idx_memory_entries_visibility", "visibility"),  # P2-M3b
         {"schema": DB_SCHEMA},
     )
 
@@ -51,6 +53,11 @@ class MemoryEntry(Base):
     source_path = Column(String(256), nullable=True)
     source_date = Column(Date, nullable=True)
     source_session_id = Column(String(256), nullable=True)  # provenance (ADR 0053)
+    principal_id = Column(String(36), nullable=True)  # P2-M3b: authenticated principal
+    visibility = Column(  # P2-M3b: visibility policy
+        String(32), nullable=False, default="private_to_principal",
+        server_default="private_to_principal",
+    )
     title = Column(Text, nullable=False, default="")
     content = Column(Text, nullable=False)
     tags = Column(ARRAY(Text), default=list)

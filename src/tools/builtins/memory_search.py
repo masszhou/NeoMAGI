@@ -82,11 +82,13 @@ class MemorySearchTool(BaseTool):
             limit = 10
 
         scope_key = context.scope_key if context else "main"
+        principal_id = context.principal_id if context else None
 
         results = await self._searcher.search(
             query=query.strip(),
             scope_key=scope_key,
             limit=limit,
+            principal_id=principal_id,
         )
 
         return {

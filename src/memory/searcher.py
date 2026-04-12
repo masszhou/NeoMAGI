@@ -36,6 +36,8 @@ class MemorySearchResult:
     score: float
     tags: list[str]
     created_at: datetime
+    principal_id: str | None = None  # P2-M3b
+    visibility: str = "private_to_principal"  # P2-M3b
 
 
 class MemorySearcher:
@@ -57,19 +59,35 @@ class MemorySearcher:
     def _build_search_sql(
         query: str, *, scope_key: str, limit: int,
         min_score: float, source_types: list[str] | None,
+        principal_id: str | None,
     ) -> tuple[str, dict]:
-        """Build tsvector search SQL and parameter dict."""
+        """Build tsvector search SQL and parameter dict.
+
+        P2-M3b principal + visibility filtering (D5):
+        - With principal_id: own entries + anonymous legacy entries.
+        - Without principal_id (anonymous): only principal_id IS NULL entries.
+        - Visibility: only private_to_principal and shareable_summary (deny-by-default).
+        """
         search_sql = f"""
             SELECT
                 id, scope_key, source_type, source_path, title, content,
                 ts_rank(search_vector, query) AS score,
-                tags, created_at
+                tags, created_at, principal_id, visibility
             FROM {DB_SCHEMA}.memory_entries,
                  plainto_tsquery('simple', :query) AS query
             WHERE scope_key = :scope_key
               AND search_vector @@ query
+              AND visibility IN ('private_to_principal', 'shareable_summary')
         """
         params: dict = {"query": query.strip(), "scope_key": scope_key}
+        # Principal filtering
+        if principal_id is not None:
+            search_sql += (
+                " AND (principal_id = :principal_id OR principal_id IS NULL)"
+            )
+            params["principal_id"] = principal_id
+        else:
+            search_sql += " AND principal_id IS NULL"
         if source_types:
             search_sql += " AND source_type = ANY(:source_types)"
             params["source_types"] = source_types
@@ -93,6 +111,7 @@ class MemorySearcher:
                     source_type=row.source_type, source_path=row.source_path,
                     title=row.title, content=row.content, score=row.score,
                     tags=row.tags or [], created_at=row.created_at,
+                    principal_id=row.principal_id, visibility=row.visibility,
                 ))
         return results
 
@@ -104,14 +123,16 @@ class MemorySearcher:
         limit: int = 10,
         min_score: float = 0.0,
         source_types: list[str] | None = None,
+        principal_id: str | None = None,
     ) -> list[MemorySearchResult]:
-        """Execute tsvector search with scope-aware filtering (ADR 0034)."""
+        """Execute tsvector search with scope + principal + visibility filtering."""
         if not query or not query.strip():
             return []
 
         search_sql, params = self._build_search_sql(
             query, scope_key=scope_key, limit=limit,
             min_score=min_score, source_types=source_types,
+            principal_id=principal_id,
         )
         results = await self._execute_search(search_sql, params)
 

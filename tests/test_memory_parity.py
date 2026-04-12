@@ -65,7 +65,8 @@ class TestMemoryParityChecker:
     async def test_consistent_state(self, tmp_path: Path) -> None:
         ledger = _make_ledger({
             "e1": {"content": "hello", "scope_key": "main", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         _write_daily_note(tmp_path, "2026-04-12", [
             _make_entry_block("e1", "hello"),
@@ -90,7 +91,8 @@ class TestMemoryParityChecker:
     async def test_only_in_ledger(self, tmp_path: Path) -> None:
         ledger = _make_ledger({
             "e1": {"content": "hello", "scope_key": "main", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         checker = MemoryParityChecker(ledger, tmp_path)
         report = await checker.check()
@@ -109,7 +111,8 @@ class TestMemoryParityChecker:
     async def test_content_mismatch(self, tmp_path: Path) -> None:
         ledger = _make_ledger({
             "e1": {"content": "original", "scope_key": "main", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         _write_daily_note(tmp_path, "2026-04-12", [
             _make_entry_block("e1", "modified"),
@@ -123,7 +126,8 @@ class TestMemoryParityChecker:
     async def test_metadata_mismatch(self, tmp_path: Path) -> None:
         ledger = _make_ledger({
             "e1": {"content": "hello", "scope_key": "other", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         _write_daily_note(tmp_path, "2026-04-12", [
             _make_entry_block("e1", "hello", scope="main"),
@@ -150,7 +154,8 @@ class TestMemoryParityChecker:
         """Both content and metadata drift on same entry must both be reported."""
         ledger = _make_ledger({
             "e1": {"content": "original", "scope_key": "other", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         _write_daily_note(tmp_path, "2026-04-12", [
             _make_entry_block("e1", "modified", scope="main"),
@@ -165,7 +170,8 @@ class TestMemoryParityChecker:
         """Scoped check should not report entries from other scopes as only_in_workspace."""
         ledger = _make_ledger({
             "e1": {"content": "hello", "scope_key": "target", "source": "user",
-                   "source_session_id": None},
+                   "source_session_id": None,
+                   "principal_id": None, "visibility": "private_to_principal"},
         })
         _write_daily_note(tmp_path, "2026-04-12", [
             _make_entry_block("e1", "hello", scope="target"),
