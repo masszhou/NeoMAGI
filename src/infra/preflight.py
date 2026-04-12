@@ -67,6 +67,12 @@ async def run_preflight(settings: Settings, db_engine: AsyncEngine) -> Preflight
     if db_result.status != CheckStatus.FAIL:
         checks.append(await _check_soul_reconcile(settings, db_engine))
 
+    # P2-M3a: auth mode warnings
+    if db_result.status != CheckStatus.FAIL:
+        auth_check = await _check_auth_mode(settings, db_engine)
+        if auth_check is not None:
+            checks.append(auth_check)
+
     report = PreflightReport(checks=checks)
 
     for c in checks:
@@ -433,3 +439,52 @@ async def _check_soul_reconcile(settings: Settings, db_engine: AsyncEngine) -> C
             impact="SOUL.md may be stale relative to DB",
             next_action="Run 'just reconcile' manually after startup",
         )
+
+
+# ── P2-M3a: auth mode checks ──
+
+
+async def _check_auth_mode(settings: Settings, engine: AsyncEngine) -> CheckResult | None:
+    """Warn if no-auth mode has claimed sessions, or auth mode on 0.0.0.0 without origins."""
+    auth_enabled = settings.auth.password_hash is not None
+
+    if not auth_enabled:
+        # Check for claimed sessions that would be inaccessible in no-auth mode
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text(
+                        f"SELECT count(*) FROM {DB_SCHEMA}.sessions"
+                        " WHERE principal_id IS NOT NULL"
+                    )
+                )
+                count = result.scalar() or 0
+            if count > 0:
+                return CheckResult(
+                    name="auth_claimed_sessions",
+                    status=CheckStatus.WARN,
+                    evidence=(
+                        f"{count} session(s) have principal_id set but AUTH_PASSWORD_HASH"
+                        " is not configured. These sessions are inaccessible in no-auth mode."
+                    ),
+                    impact="Previously claimed sessions cannot be accessed",
+                    next_action="Set AUTH_PASSWORD_HASH to re-enable authentication",
+                )
+        except Exception:
+            pass  # table may not exist yet
+        return None
+
+    # Auth enabled: warn about network exposure
+    if settings.gateway.host == "0.0.0.0" and not settings.gateway.allowed_origins:
+        return CheckResult(
+            name="auth_network_boundary",
+            status=CheckStatus.WARN,
+            evidence=(
+                "Auth mode enabled with GATEWAY_HOST=0.0.0.0 but"
+                " GATEWAY_ALLOWED_ORIGINS is not configured"
+            ),
+            impact="Login endpoint exposed on all interfaces without Origin restriction",
+            next_action="Set GATEWAY_ALLOWED_ORIGINS to restrict access",
+        )
+
+    return None

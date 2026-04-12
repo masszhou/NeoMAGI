@@ -101,6 +101,10 @@ add-component name:
 preview-frontend:
     cd {{frontend_dir}} && pnpm preview
 
+# Generate bcrypt password hash for AUTH_PASSWORD_HASH
+hash-password:
+    @uv run python -c "import bcrypt, getpass; pw = getpass.getpass('Password: '); print(bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode())"
+
 # Run all tests
 test:
     uv run pytest tests/ -v

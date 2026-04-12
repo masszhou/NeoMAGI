@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { useAuthStore } from "@/stores/auth"
 import { useChatStore } from "@/stores/chat"
 import type { SessionMode } from "@/stores/chat"
 import { Toaster } from "@/components/ui/sonner"
@@ -19,10 +20,12 @@ export function ChatPage() {
   ) as SessionMode
   const setMode = useChatStore((state) => state.setMode)
 
+  const authToken = useAuthStore((state) => state.token)
+
   useEffect(() => {
-    connect(WS_URL)
+    connect(WS_URL, authToken)
     return () => disconnect()
-  }, [connect, disconnect])
+  }, [connect, disconnect, authToken])
 
   return (
     <div className="flex h-screen bg-background">

@@ -58,6 +58,7 @@ class GatewaySettings(BaseSettings):
         le=3600,
         validation_alias="GATEWAY_SESSION_CLAIM_TTL_SECONDS",
     )
+    allowed_origins: str = ""  # comma-separated; empty = no Origin check
 
 
 class SessionSettings(BaseSettings):

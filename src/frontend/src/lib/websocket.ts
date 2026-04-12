@@ -5,6 +5,8 @@ export interface WebSocketClientOptions {
   onMessage: (message: ServerMessage) => void
   onStatusChange: (status: ConnectionStatus) => void
   onConnected?: () => void
+  onAuthFailed?: () => void
+  authToken?: string | null
   reconnect?: boolean
   baseReconnectMs?: number
   maxReconnectMs?: number
@@ -20,12 +22,15 @@ const DEFAULTS = {
 
 export class WebSocketClient {
   private ws: WebSocket | null = null
-  private options: Required<Omit<WebSocketClientOptions, "onConnected">> & {
+  private options: Required<Omit<WebSocketClientOptions, "onConnected" | "onAuthFailed" | "authToken">> & {
     onConnected?: () => void
+    onAuthFailed?: () => void
+    authToken?: string | null
   }
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private intentionalClose = false
+  private pendingAuth = false
 
   constructor(options: WebSocketClientOptions) {
     this.options = { ...DEFAULTS, ...options }
@@ -50,27 +55,58 @@ export class WebSocketClient {
     this.ws.onopen = () => {
       console.log("[WS] Connected to", this.options.url)
       this.reconnectAttempts = 0
-      this.options.onStatusChange("connected")
-      this.options.onConnected?.()
+
+      if (this.options.authToken) {
+        // Auth mode: send auth RPC, wait for response before onConnected
+        this.pendingAuth = true
+        this.send({
+          type: "request",
+          id: "auth-handshake",
+          method: "auth",
+          params: { token: this.options.authToken },
+        })
+      } else {
+        // No-auth mode: immediately ready
+        this.options.onStatusChange("connected")
+        this.options.onConnected?.()
+      }
     }
 
     this.ws.onmessage = (event: MessageEvent) => {
       try {
         const data: unknown = JSON.parse(event.data as string)
-        if (typeof data === "object" && data !== null && "type" in data) {
-          const msg = data as ServerMessage
-          if (
-            msg.type === "stream_chunk" ||
-            msg.type === "error" ||
-            msg.type === "tool_call" ||
-            msg.type === "response" ||
-            msg.type === "tool_denied"
-          ) {
-            this.options.onMessage(msg)
-            return
-          }
+        if (typeof data !== "object" || data === null || !("type" in data)) {
+          console.warn("[WS] Unknown message format:", data)
+          return
         }
-        console.warn("[WS] Unknown message format:", data)
+
+        const msg = data as ServerMessage
+
+        // Handle auth handshake response
+        if (this.pendingAuth && "id" in msg && (msg as { id: string }).id === "auth-handshake") {
+          this.pendingAuth = false
+          if (msg.type === "response") {
+            console.log("[WS] Auth successful")
+            this.options.onStatusChange("connected")
+            this.options.onConnected?.()
+          } else if (msg.type === "error") {
+            console.error("[WS] Auth failed:", (msg as { error: { message: string } }).error.message)
+            this.options.onAuthFailed?.()
+          }
+          return
+        }
+
+        if (
+          msg.type === "stream_chunk" ||
+          msg.type === "error" ||
+          msg.type === "tool_call" ||
+          msg.type === "response" ||
+          msg.type === "tool_denied"
+        ) {
+          this.options.onMessage(msg)
+          return
+        }
+        console.warn("[WS] Unknown message type:", msg.type)
       } catch {
         console.warn("[WS] Failed to parse message:", event.data)
       }

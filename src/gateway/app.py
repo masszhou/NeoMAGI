@@ -403,7 +403,7 @@ def _build_provider_registry(settings, session_manager, memory_searcher,
 
 
 async def _start_telegram(settings, registry, session_manager, budget_gate,
-                          health_tracker):
+                          health_tracker, principal_store=None):
     """Start optional Telegram adapter. Returns (adapter, polling_task)."""
     if not settings.telegram.bot_token:
         return None, None
@@ -414,6 +414,7 @@ async def _start_telegram(settings, registry, session_manager, budget_gate,
         telegram_settings=settings.telegram, registry=registry,
         session_manager=session_manager, budget_gate=budget_gate,
         gateway_settings=settings.gateway,
+        principal_store=principal_store,
     )
     await adapter.check_ready()
     task = asyncio.create_task(adapter.start_polling(), name="telegram_polling")
@@ -522,6 +523,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     telegram_adapter, polling_task = await _start_telegram(
         settings, registry, session_manager, budget_gate, health_tracker,
+        principal_store=principal_store,
     )
 
     yield

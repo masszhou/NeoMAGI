@@ -246,11 +246,12 @@ export const useChatStore = create<ChatState>()(
 
         // ── Connection ──
 
-        connect: (url: string) => {
+        connect: (url: string, authToken?: string | null) => {
           if (wsClient?.isConnected) return
           wsClient?.close()
           wsClient = new WebSocketClient({
             url,
+            authToken: authToken ?? undefined,
             onMessage: (msg) =>
               useChatStore.getState()._handleServerMessage(msg),
             onStatusChange: (status) =>
@@ -258,6 +259,11 @@ export const useChatStore = create<ChatState>()(
             onConnected: () => {
               const { activeSessionId } = useChatStore.getState()
               useChatStore.getState().loadHistory(activeSessionId)
+            },
+            onAuthFailed: () => {
+              // Import dynamically to avoid circular deps
+              const { useAuthStore } = require("@/stores/auth")
+              useAuthStore.getState().logout()
             },
           })
           wsClient.connect()

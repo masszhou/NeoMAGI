@@ -15,6 +15,7 @@ from aiogram.types import Message
 
 from src.agent.events import TextChunk
 from src.agent.provider_registry import AgentLoopRegistry
+from src.auth.store import PrincipalStore
 from src.channels.telegram_render import format_for_telegram, friendly_error_message, split_message
 from src.config.settings import GatewaySettings, TelegramSettings
 from src.gateway.budget_gate import BudgetGate
@@ -52,6 +53,7 @@ class TelegramAdapter:
         session_manager: SessionManager,
         budget_gate: BudgetGate,
         gateway_settings: GatewaySettings,
+        principal_store: PrincipalStore | None = None,
     ) -> None:
         self._bot = Bot(token=bot_token)
         self._dp = Dispatcher()
@@ -60,6 +62,7 @@ class TelegramAdapter:
         self._session_manager = session_manager
         self._budget_gate = budget_gate
         self._gateway_settings = gateway_settings
+        self._principal_store = principal_store
         self._allowed_ids = _parse_allowed_ids(telegram_settings.allowed_user_ids)
         self._bot_username: str = ""
 
@@ -105,6 +108,7 @@ class TelegramAdapter:
         user_id, content = validated
         peer_id = str(user_id)
         session_id, identity = self._resolve_identity(peer_id)
+        identity = await self._enrich_identity_with_principal(identity, peer_id)
 
         typing_task = asyncio.create_task(
             self._typing_loop(message.chat.id), name="tg_typing",
@@ -155,6 +159,7 @@ class TelegramAdapter:
                 content=content,
                 identity=identity,
                 dm_scope=self._settings.dm_scope,
+                auth_mode=self._principal_store is not None,
                 session_claim_ttl_seconds=self._gateway_settings.session_claim_ttl_seconds,
             ):
                 if isinstance(event, TextChunk):
@@ -171,6 +176,63 @@ class TelegramAdapter:
         except Exception:
             logger.exception("telegram_dispatch_error", user_id=user_id, session_id=session_id)
             await message.answer(friendly_error_message(None))
+
+    async def _enrich_identity_with_principal(
+        self, identity: SessionIdentity, peer_id: str,
+    ) -> SessionIdentity:
+        """Lookup or auto-create verified binding, return enriched identity.
+
+        Only verified bindings produce principal_id. Unverified bindings are
+        explicitly handled — they must not silently merge into user continuity.
+        """
+        if self._principal_store is None:
+            return identity  # no-auth mode
+
+        resolution = await self._principal_store.resolve_binding(
+            channel_type="telegram", channel_identity=peer_id,
+        )
+
+        if resolution.status == "verified":
+            return SessionIdentity(
+                session_id=identity.session_id,
+                channel_type=identity.channel_type,
+                peer_id=identity.peer_id,
+                principal_id=resolution.principal_id,
+            )
+
+        if resolution.status == "unverified":
+            # Upgrade to verified if same owner (Telegram whitelist = verification)
+            owner = await self._principal_store.get_owner()
+            if owner is not None and resolution.principal_id == owner.id:
+                await self._principal_store.verify_binding(
+                    channel_type="telegram", channel_identity=peer_id,
+                )
+                return SessionIdentity(
+                    session_id=identity.session_id,
+                    channel_type=identity.channel_type,
+                    peer_id=identity.peer_id,
+                    principal_id=owner.id,
+                )
+            # unverified + different principal or no owner → do NOT merge
+            return identity
+
+        # status == "not_found": auto-create verified binding
+        owner = await self._principal_store.get_owner()
+        if owner is not None:
+            await self._principal_store.ensure_binding(
+                principal_id=owner.id,
+                channel_type="telegram",
+                channel_identity=peer_id,
+                verified=True,
+            )
+            return SessionIdentity(
+                session_id=identity.session_id,
+                channel_type=identity.channel_type,
+                peer_id=identity.peer_id,
+                principal_id=owner.id,
+            )
+
+        return identity  # no owner exists
 
     async def _send_response(self, message: Message, text: str) -> None:
         """Send response with optional MarkdownV2 formatting and message splitting."""
