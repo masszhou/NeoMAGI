@@ -684,3 +684,34 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Tests: ~30 新增 + 现有迁移; 1803 unit + 81 integration passed
 - Next: P2-M3 (Identity / Principal / Visibility / Memory Policy)
 - Risk: reindex 仍从 workspace 扫描，ledger-only entry (projection 失败) 在 reindex 后从 memory_entries 消失；P2-M3 切换 read path 后自动消除
+
+## 2026-04-12 (local) | P2-M3a: Auth & Principal Kernel
+- Status: done
+- Done: WebChat 认证登录、canonical principal/binding 模型、全链路 principal_id 传播、Telegram 自动 binding、前端 Login UI、网络边界
+- Scope:
+  - principals 表 (partial unique single-owner) + principal_bindings 表 (FK RESTRICT, verified/unverified) + sessions.principal_id 列
+  - AuthSettings (bcrypt hash 验证, no-auth mode) + PrincipalStore (7 async CRUD: ensure_owner 密码轮换, verify_password, ensure/resolve/verify_binding)
+  - JWT (HS256 PyJWT create/verify/generate_secret) + LoginRateLimiter (IP-based, 5/min→5min lockout)
+  - POST /auth/login (401/403/405/429) + GET /auth/status + NeoMAGIError HTTP exception handler
+  - WebSocket pre-auth 握手 (_authenticate_ws, 10s timeout, close on failure)
+  - authorize_and_stamp_session (entry guard + authorize + stamp, 读/写路径一致)
+  - claim_session_for_principal (原子 SQL INSERT ON CONFLICT + COALESCE(principal_id) + post-claim validation)
+  - set_mode(principal_id, auth_mode) 扩展
+  - SessionIdentity.principal_id → RequestState → ToolContext → tool_runner → AgentLoop._execute_tool → tool_concurrency 全链路
+  - TelegramAdapter: PrincipalStore 依赖, _enrich_identity_with_principal (verified/unverified/not_found 3-branch), auth_mode 传递
+  - 前端: auth store (Zustand), LoginForm, websocket auth handshake (pendingAuth + onAuthFailed), App.tsx auth 路由
+  - GatewaySettings.allowed_origins + _is_allowed_origin() Origin guard (/auth/login 403 + /ws close 4003)
+  - Preflight _check_auth_mode (no-auth claimed sessions WARN, auth 0.0.0.0 WARN)
+  - justfile hash-password, backup TRUTH_TABLES 更新
+- Review Findings (plan 5 rounds + impl 2 rounds, all fixed):
+  - Plan v1→v2 (5必须+5建议): session 绑定矛盾→claim-on-first-auth; WS 竞态→pre-auth+onAuthenticated; scope_key 修正; 传播链; 密码策略
+  - Plan v2→v5 (7P1+5P2+2P3): no-auth 泄漏; 原子 claim 路径; tool_runner 签名; ProcedureMetadata 范围; 静态 CORS; history stamp; entry guard; unverified binding; set_mode; SQL interval
+  - Impl P1×2: Origin 无 enforcement→_is_allowed_origin; Telegram no-auth 误判→principal_store=None
+  - Impl P2×1: /auth/login 500→NeoMAGIError HTTP handler (401/403/405/429)
+  - Impl P3×2: allowed_origins whitespace strip; 安全边界缺测试→10 个 test_auth_boundary
+- Evidence: `dev_docs/logs/phase2/p2-m3a_auth-principal-kernel_2026-04-12.md`
+- Commits: 0f794dc (G0) + 9ea6959 (G1) + 254bdaa (G2) + f5ad43e (fix) + 4a28695 (tests)
+- Tests: 10 新增 boundary tests; 1827 total passed
+- Files: 11 新增 + 25 修改 = 36 files, +1944 lines
+- Next: P2-M3b (Memory Ledger & Visibility Policy)
+- Risk: ProcedureExecutionMetadata.principal_id 只保证 runtime API 层填充，端到端 WebSocket→enter_procedure 需等 procedure entry surface 建立
