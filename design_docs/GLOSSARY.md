@@ -84,7 +84,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 ### Shared Companion
 - **Category**：Product Direction / Identity & Memory
 - **Aliases**：shared AI companion, common companion
-- **Definition**：NeoMAGI 在明确授权的共享关系空间中服务多个已认证 principal 的产品能力方向。它不是群聊本身，也不是多长期人格；核心是 consent-scoped relationship memory、membership、provenance 与对关系本身有建设性的建议。它把 NeoMAGI 扩展为受治理的 AI 社会角色 / 关系网络节点，而不是只作为个人工具。
+- **Definition**：NeoMAGI 的长期产品能力方向：每个 NeoMAGI 默认只代表自己的 owner；relationship / shared-space 是由 consent-scoped artifacts 组成的 application projection，不假设同一实例托管所有参与者的私有数据。长期架构倾向联邦式 NeoMAGI-to-NeoMAGI 通信，federation protocol 留给 P3+。它不是群聊本身，也不是多长期人格；核心是 consent-scoped relationship memory、provenance 与对关系本身有建设性的建议。它把 NeoMAGI 扩展为受治理的 AI 社会角色 / 关系网络节点，而不是只作为个人工具。
 - **Relations**：
   - `uses` → [Relationship Space](#relationship-space)
   - `serves` → [Principal](#principal)
@@ -94,7 +94,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 ### Relationship Space
 - **Category**：Identity / Memory Scope
 - **Aliases**：shared space, relationship shared space, `shared_space_id`
-- **Definition**：多个已认证 principal 明确加入的共享关系空间，例如情侣、家庭或团队。它回答“哪些人共同拥有这一段关系上下文、哪些记忆可在此召回”，不是 channel、Slack 群或 Telegram 群本身。
+- **Definition**：多个已认证 principal 之间由 consent-scoped artifacts 组成的共享关系上下文，例如情侣、家庭或团队。`shared_space_id` 在 P2 为 reserved 概念，不做规范化关系模型或持久化表。具体实现模式（联邦式 NeoMAGI-to-NeoMAGI、hosted shared-space 或混合）留给 P3+。它不是 channel、Slack 群或 Telegram 群本身。
 - **Relations**：
   - `contains` → [Principal](#principal)
   - `bounds` → [Memory Visibility](#memory-visibility)

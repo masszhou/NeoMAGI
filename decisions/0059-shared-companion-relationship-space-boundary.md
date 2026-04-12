@@ -7,21 +7,22 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
 
 - Status: accepted
 - Date: 2026-04-07
+- Amended: 2026-04-12 — 收紧中心语义为 owner-first / federation-compatible；砍掉 P2-M3 的 membership 表和 federation protocol skeleton，收缩为 visibility policy hook + deny-by-default + audit reason
 - Related: ADR 0034, ADR 0047, ADR 0048, ADR 0053, ADR 0060, ADR 0061
 
 ## 选了什么
 
-- 将 `Shared Companion` 定义为 NeoMAGI 的一个长期产品能力方向：同一个 agent 可以在明确授权的共享关系空间中服务多个已认证 principal，维护关系记忆，并给出对关系本身有建设性的建议。
-- NeoMAGI 在这里不是“中立人格”或无立场裁判，而是一个受治理的 AI 社会角色：它仍有自己的 `SOUL`、长期原则和行为风格，但在 shared space 中承担关系网络节点 / 共同朋友式的建设性角色。
-- `Shared Companion` 的核心对象不是“群聊”或“多人格 agent”，而是显式的 `relationship/shared space`：
-  - `principal_id` 表示单个已认证用户。
-  - `shared_space_id` 表示双方或多方明确加入的共享关系空间。
-  - `membership` 表示哪些 principal 属于该 shared space，以及成员状态与角色。
+- 将 `Shared Companion` 定义为 NeoMAGI 的一个长期产品能力方向：每个 NeoMAGI 默认只代表自己的 owner；relationship / shared-space 是由 consent-scoped artifacts 组成的 application projection，不假设同一个 NeoMAGI 实例托管所有参与者的私有数据。
+- 长期架构倾向联邦式 NeoMAGI-to-NeoMAGI 通信：每个用户拥有自己的 NeoMAGI 实例管理私有记忆，关系空间只交换经过授权的摘要、声明、事件或 consent artifact。这比”主用户实例管理所有人的隐私和认证”更符合 personal agent 基线与 ADR 0047 的单一用户利益原则。具体 federation protocol 留给 P3+ 设计。
+- NeoMAGI 在关系场景中不是”中立人格”或无立场裁判，而是一个受治理的 AI 社会角色：它仍有自己的 `SOUL`、长期原则和行为风格，在关系场景中承担建设性角色。
+- `Shared Companion` 的核心对象不是”群聊”或”多人格 agent”，而是显式的 `relationship/shared space`：
+  - `principal_id` 表示单个已认证用户（owner 或 guest）。
   - `visibility` 表示 memory 是否为 `private_to_principal`、`shared_in_space` 或 `shareable_summary`。
+  - `shared_space_id` 与 `membership` 作为未来联邦或 hosted 模型的 reserved 概念，P2 不做规范化关系模型。
 - 关系记忆必须是 consent-scoped：默认不把某一方私聊记忆暴露给另一方；只有经明确授权或在 shared space 中产生的内容，才可进入 shared memory。
 - 关系记忆仍遵循 memory kernel 原则：DB append-only source ledger 是机器写入 memory truth，workspace 是 projection / export surface；shared memory 是 memory application 层的组织方式，不把 retrieval schema 或 graph projection 提升为真源。
 - `P2-M2` 只为该能力预留 procedure execution context 余量，例如 actor/principal/shared_space/visibility，而不在 Procedure Runtime Core 中实现关系记忆产品能力。
-- `P2-M3` 只承担 Shared Companion 的安全地基：authenticated principals、shared-space metadata / membership skeleton、visibility guard hook、deny-by-default retrieval boundary；不交付完整 relationship lifecycle、shared memory 写入或产品级 demo。
+- `P2-M3` 只承担 federation-compatible 的最小安全地基：visibility policy hook、deny-by-default 的 `shared_in_space` reserved 语义、可解释的 allow/deny audit reason；不做 membership 表、federation protocol skeleton、shared memory lifecycle 或产品级 demo。
 - 外部协作表面（例如 Slack / 群聊 / channel adapter）暂不进入 P2 规划；未来若进入路线图，也不得绕过 `P2-M3` 的 identity、visibility guard 与 fail-closed memory boundary。
 
 ## 为什么
@@ -30,7 +31,7 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
 - NeoMAGI 的 personal agent 方向不应退化成“帮当前用户赢得争论”；在明确授权的 shared space 中，它应能帮助多方降低误解、改善关系、形成可追溯的共同记忆。
 - 这个方向为 NeoMAGI 增加了 AI 的社会角色：它不只是个人工具，也可以在 consent-scoped 边界内成为人类关系网络中的真实节点，帮助用户承载社交关系。
 - 这不是模型能力问题，而是 runtime role 与 memory scope 问题：必须把“单方私有记忆”和“多方共享关系记忆”分开治理。
-- 如果先从群聊或 Slack 表面切入，会把问题误解成渠道适配；真正前置条件是 principal、membership、consent、scope-safe retrieval。
+- 如果先从群聊或 Slack 表面切入，会把问题误解成渠道适配；真正前置条件是 principal、visibility policy hook、consent semantics、scope-safe retrieval。
 - 如果直接把一方的私有 NeoMAGI 记忆用于另一方咨询，会形成隐性泄漏与偏置，违背当前 scope-aware memory 边界。
 
 ## 放弃了什么
@@ -39,19 +40,24 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
   - 放弃原因：`P2-M2a` 的任务是 Procedure Runtime Core；过早引入多方关系记忆会把 runtime、identity、consent 和 retrieval policy 混成一个大包。
 - 方案 B：把 Shared Companion 等同于 Slack / 群聊。
   - 放弃原因：群聊只是表面；没有 identity 和 memory sharing policy，群聊会成为新的隐私泄漏面。
-- 方案 C：让 NeoMAGI 在 B 咨询时直接使用 A 的私有记忆来“纠偏”。
+- 方案 C：让 NeoMAGI 在 B 咨询时直接使用 A 的私有记忆来”纠偏”。
   - 放弃原因：这会把 shared companion 变成私有信息泄漏通道，也会制造隐性偏置。
 - 方案 D：把 Shared Companion 的全部语义都推迟到 Phase 3 才开始设计。
-  - 放弃原因：`P2-M2` / `P2-M3` 正在冻结 runtime、identity 与 memory 契约；若不现在预留 shared-space 语义，后续补救成本高。
+  - 放弃原因：`P2-M2` / `P2-M3` 正在冻结 runtime、identity 与 memory 契约；若不现在预留 visibility policy hook，后续补救成本高。
 - 方案 E：把多方视角实现成多个长期 SOUL / 多人格系统。
   - 放弃原因：这会与 ADR 0047 的单一用户利益 / 单一 SOUL 下受治理执行单元方向冲突；Shared Companion 需要的是多 principal 与共享关系空间，不是多自我。
+- 方案 F：在 P2-M3 做 federation protocol skeleton（远端身份、消息格式、信任握手）。
+  - 放弃原因：哪怕只是 skeleton，也会诱导过早设计协议对象。P2-M3 只需保证”未来协议可以接进来”，不需定义协议本身。
+- 方案 G：在 P2-M3 做完整 membership 表和 shared_space_id 规范化关系模型。
+  - 放弃原因：当前只有一个用户，多 principal 关系模型在 P2 没有实际消费者。只需保留 visibility policy hook + deny-by-default + audit reason 即可。
 
 ## 影响
 
 - `design_docs/phase2/p2_m2_architecture.md` 应明确：Procedure Runtime 的 execution context 不应永久等同于单 session / 单 principal；但 `P2-M2a` 不实现 shared relationship memory。
-- `design_docs/phase2/p2_m3_architecture.md` 应把 `shared_space_id`、membership skeleton、visibility 与 deny-by-default guard 作为 identity / sharing policy 的设计余量；完整 consent-scoped relationship memory 推迟到 P3+ 或独立计划。
+- `design_docs/phase2/p2_m3_architecture.md` 应把 visibility policy hook、deny-by-default `shared_in_space` reserved 语义与 allow/deny audit reason 作为 federation-compatible 的最小安全地基；不做 membership 表或 shared_space_id 规范化。完整 consent-scoped relationship memory 与 federation protocol 推迟到 P3+ 或独立计划。
 - 群聊 / Slack 若未来进入路线图，应被定位为 shared space 的表面之一，而不是 shared memory 的真源或 policy 决策点。
 - 后续实现 memory application 时，应允许 relationship memory 作为一类应用，但必须保持 DB ledger truth、workspace projection、scope filtering、provenance 与 reindexability。
+- 长期 Shared Companion 实现可能走联邦式（多个 NeoMAGI 实例间通信）、hosted shared-space（主用户实例托管 shared context 但不存储 guest 私有数据）或混合模式。P2-M3 的 visibility policy hook 设计应兼容这些路径，不深度绑定到单实例多 principal 实现。
 
 ## 后续必须回答的问题
 
@@ -59,4 +65,5 @@ doc_id_assigned_at: 2026-04-07T18:42:43+02:00
 - `shareable_summary`：它是从私有内容派生出的可分享摘要，不等于公开原始 private memory；V1 至少要求来源 principal 明确确认，涉及共同事实时是否需要多方确认留给 P3+ 或独立计划。
 - relationship lifecycle：shared space 需要 leave / revoke / freeze / archive / dissolve / contested-memory correction 语义；关系结束后 shared memory 的保留、召回和更正必须显式定义，但不在 P2-M3 交付。
 - threat model：必须覆盖 relationship memory poisoning、短时密集写入影响建议、"不要告诉对方" 请求、参与度不对称导致视角偏移、争议事实被误当共同事实等风险；P2-M3 只要求 fail-closed skeleton，完整模型推迟到 P3+。
-- demo fidelity：`P2-M2` 可做无持久 shared memory 的 procedure demo；`P2-M3` 只做 Shared Companion 的 deny-by-default 地基，不承诺产品级 demo。若提前做 seeded-context 展示，必须明确标注为 fixture，不得作为 runtime 验收。
+- demo fidelity：`P2-M2` 可做无持久 shared memory 的 procedure demo；`P2-M3` 只做 federation-compatible 的 deny-by-default 地基（visibility policy hook + audit reason），不承诺产品级 demo。若提前做 seeded-context 展示，必须明确标注为 fixture，不得作为 runtime 验收。
+- federation vs hosted：P3+ 需要在联邦式（多实例通信）和 hosted shared-space（单实例托管 shared context）之间做出路径选择；P2-M3 的 policy hook 不应预判这一选择。

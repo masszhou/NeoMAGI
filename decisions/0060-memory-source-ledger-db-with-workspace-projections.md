@@ -49,7 +49,7 @@ doc_id_assigned_at: 2026-04-11T17:27:38+02:00
 - DB append-only ledger 比 Markdown 元数据行更适合承载稳定身份、来源、作用域、授权、redaction、contested memory 和 shared-space visibility。
 - NeoMAGI 已经要求 PostgreSQL 17，DB 不再是额外依赖；把机器写入真源放入 DB 可以复用事务、并发控制、schema 约束、审计与备份路径。
 - 用户可读性仍由 workspace projection / export 保留；用户不能直接无审计改写 DB truth 也成为安全边界，能降低未授权篡改和 prompt injection 污染真源的风险。
-- P2-M3 的 identity、membership、consent-scoped memory 需要更严谨的 provenance 与 visibility 语义；DB ledger 更适合作为这些策略的稳定承载层。
+- P2-M3 的 identity、visibility policy hook、consent semantics 及未来 shared-space visibility provenance 需要更严谨的 provenance 与 visibility 语义；DB ledger 更适合作为这些策略的稳定承载层。
 - 与 `SOUL` 的区别仍然清楚：
   - `SOUL` 是低频、高风险、版本化治理对象；
   - memory 是高频、事实型、隐私敏感对象；
