@@ -61,6 +61,10 @@ class TestMemoryAppendToolExecute:
         result = await tool.execute({"text": "Remember this"}, ctx)
 
         assert result["ok"] is True
+        assert result["entry_id"] is not None
+        assert result["ledger_written"] is False  # no-ledger fallback
+        assert result["projection_written"] is True
+        assert "path" in result
         path = tmp_path / "memory" / f"{date.today().isoformat()}.md"
         content = path.read_text(encoding="utf-8")
         assert "Remember this" in content

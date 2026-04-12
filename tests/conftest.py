@@ -154,6 +154,7 @@ async def _truncate_integration_tables(factory) -> None:
                 "messages",
                 "sessions",
                 "memory_entries",
+                "memory_source_ledger",
                 "soul_versions",
                 "budget_reservations",
                 "skill_spec_versions",

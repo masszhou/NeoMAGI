@@ -117,8 +117,30 @@ def _make_db_patches(execution_log: list[str]):
     begin_cm = MagicMock()
     begin_cm.__aenter__ = AsyncMock(return_value=mock_conn)
     begin_cm.__aexit__ = AsyncMock(return_value=None)
+
+    # connect() for step 7.5 ledger check (returns table-exists + row count)
+    ledger_conn = AsyncMock()
+    ledger_call_count = 0
+
+    async def ledger_execute(stmt, params=None):
+        nonlocal ledger_call_count
+        ledger_call_count += 1
+        result = MagicMock()
+        if ledger_call_count == 1:
+            result.scalar.return_value = True  # table exists
+        else:
+            result.scalar.return_value = 0  # row count
+            execution_log.append("step7_5_ledger")
+        return result
+
+    ledger_conn.execute = ledger_execute
+    connect_cm = MagicMock()
+    connect_cm.__aenter__ = AsyncMock(return_value=ledger_conn)
+    connect_cm.__aexit__ = AsyncMock(return_value=None)
+
     mock_engine = MagicMock()
     mock_engine.begin = MagicMock(return_value=begin_cm)
+    mock_engine.connect = MagicMock(return_value=connect_cm)
     mock_engine.dispose = AsyncMock()
 
     async def track_ensure_schema(*args, **kwargs):
@@ -196,6 +218,7 @@ class TestRunRestore:
             "step5_reconcile",
             "step6_truncate",
             "step7_reindex",
+            "step7_5_ledger",
             "step8_preflight",
         ]
         # Step 3.5 (clear workspace memory) is real file I/O, not mocked —
@@ -424,3 +447,68 @@ class TestRestoreCli:
             cwd=str(Path(__file__).resolve().parent.parent),
         )
         assert result.returncode != 0
+
+
+def _make_engine_for_ledger_check(*, exists: bool = True, row_count: int = 0):
+    """Create a mock engine for _check_memory_source_ledger tests."""
+    conn = AsyncMock()
+    call_count = 0
+
+    async def _execute(stmt, params=None):
+        nonlocal call_count
+        call_count += 1
+        result = MagicMock()
+        if call_count == 1:
+            result.scalar.return_value = exists
+        else:
+            result.scalar.return_value = row_count
+        return result
+
+    conn.execute = _execute
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=conn)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    engine = MagicMock()
+    engine.connect.return_value = ctx
+    return engine
+
+
+class TestCheckMemorySourceLedger:
+    """Tests for step 7.5: memory_source_ledger truth table check."""
+
+    @pytest.mark.asyncio
+    async def test_table_exists_reports_ok(self) -> None:
+        from scripts.restore import _check_memory_source_ledger
+
+        engine = _make_engine_for_ledger_check(exists=True, row_count=42)
+        results: list[tuple[str, str]] = []
+        await _check_memory_source_ledger(engine, results=results)
+        assert len(results) == 1
+        assert results[0][0] == "7.5. memory_source_ledger"
+        assert "OK" in results[0][1]
+        assert "42" in results[0][1]
+
+    @pytest.mark.asyncio
+    async def test_table_missing_fails_restore(self) -> None:
+        from scripts.restore import _check_memory_source_ledger
+
+        engine = _make_engine_for_ledger_check(exists=False)
+        results: list[tuple[str, str]] = []
+        with pytest.raises(SystemExit) as exc_info:
+            await _check_memory_source_ledger(engine, results=results)
+        assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_query_exception_reports_warn(self) -> None:
+        from scripts.restore import _check_memory_source_ledger
+
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(side_effect=Exception("db error"))
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        engine = MagicMock()
+        engine.connect.return_value = ctx
+
+        results: list[tuple[str, str]] = []
+        await _check_memory_source_ledger(engine, results=results)
+        assert len(results) == 1
+        assert "WARN" in results[0][1]

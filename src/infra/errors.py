@@ -71,6 +71,13 @@ class MemoryWriteError(NeoMAGIError):
         super().__init__(message, code=code)
 
 
+class LedgerWriteError(NeoMAGIError):
+    """Errors during memory source ledger write operations (ADR 0060)."""
+
+    def __init__(self, message: str, *, code: str = "LEDGER_WRITE_ERROR") -> None:
+        super().__init__(message, code=code)
+
+
 class SessionFencingError(GatewayError):
     """Raised when a stale worker tries to write after lock takeover."""
 

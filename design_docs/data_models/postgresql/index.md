@@ -11,6 +11,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 ## 1. 阅读建议
 
 - 看对话持久化：[`sessions`](./sessions.md) -> [`messages`](./messages.md)
+- 看 memory truth (append-only ledger)：[`memory_source_ledger`](./memory_source_ledger.md)
 - 看 memory 检索面：[`memory_entries`](./memory_entries.md)
 - 看 SOUL 治理：[`soul_versions`](./soul_versions.md)
 - 看预算治理：[`budget_state`](./budget_state.md) / [`budget_reservations`](./budget_reservations.md)
@@ -25,6 +26,12 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 | --- | --- | --- |
 | [`sessions`](./sessions.md) | 会话级真源；保存会话模式、顺序控制、压缩状态 | [`messages`](./messages.md) |
 | [`messages`](./messages.md) | 会话内按 `seq` 排序的消息流水 | [`sessions`](./sessions.md) |
+
+### Memory Truth
+
+| 表 | 用途 | 相关表 |
+| --- | --- | --- |
+| [`memory_source_ledger`](./memory_source_ledger.md) | Append-only memory truth (ADR 0060) | workspace daily notes 和 `memory_entries` 是 projection |
 
 ### Retrieval Plane
 
@@ -62,6 +69,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 | [`budget_reservations`](./budget_reservations.md) | Cost Governance | 每次通过预算闸门的预占与后续结算流水 |
 | [`budget_state`](./budget_state.md) | Cost Governance | 全局预算累计器，当前设计上预期只有 `global` 一行 |
 | [`memory_entries`](./memory_entries.md) | Retrieval Plane | workspace memory 的检索投影，一行代表一个可搜索片段 |
+| [`memory_source_ledger`](./memory_source_ledger.md) | Memory Truth | append-only memory truth，一行代表一次 memory 事件（ADR 0060） |
 | [`messages`](./messages.md) | Session & Conversation | 会话内单条消息或工具调用消息 |
 | [`sessions`](./sessions.md) | Session & Conversation | 会话级顶层状态与顺序控制 |
 | [`skill_evidence`](./skill_evidence.md) | Runtime Current-State | 每个 skill 当前证据快照 |

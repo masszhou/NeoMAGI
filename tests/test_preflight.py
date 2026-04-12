@@ -68,7 +68,10 @@ def _mock_engine_with_db(
 ) -> AsyncMock:
     """Create a mock engine with configurable DB responses."""
     if tables is None:
-        tables = ["sessions", "messages", "memory_entries", "soul_versions"]
+        tables = [
+            "sessions", "messages", "memory_entries",
+            "soul_versions", "memory_source_ledger",
+        ]
     if budget_tables is None:
         budget_tables = ["budget_state", "budget_reservations"]
 

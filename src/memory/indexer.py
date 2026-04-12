@@ -203,18 +203,23 @@ class MemoryIndexer:
         Only the first line matching ``[HH:MM]`` is considered; body content
         is never scanned, preventing false positives from user prose.
 
-        Returns dict with keys: entry_id, scope, source_session_id.
-        Missing fields resolve to None (entry_id, source_session_id) or
+        Returns dict with keys: entry_id, source, scope, source_session_id.
+        Missing fields resolve to None (entry_id, source, source_session_id) or
         default_scope (scope). Backward-compatible with old format.
         """
         first_line = entry_text.split("\n", 1)[0]
         if not re.match(r"^\[[\d:]+\]", first_line):
-            return {"entry_id": None, "scope": default_scope, "source_session_id": None}
+            return {
+                "entry_id": None, "source": None,
+                "scope": default_scope, "source_session_id": None,
+            }
         entry_id_m = re.search(r"entry_id:\s*(\S+)", first_line)
+        source_m = re.search(r"source:\s*(\S+)", first_line)
         scope_m = re.search(r"scope:\s*(\S+)", first_line)
         ssid_m = re.search(r"source_session_id:\s*(\S+)", first_line)
         return {
             "entry_id": entry_id_m.group(1).rstrip(",)") if entry_id_m else None,
+            "source": source_m.group(1).rstrip(",)") if source_m else None,
             "scope": scope_m.group(1).rstrip(",)") if scope_m else default_scope,
             "source_session_id": ssid_m.group(1).rstrip(",)") if ssid_m else None,
         }

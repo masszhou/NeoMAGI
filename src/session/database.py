@@ -45,6 +45,7 @@ async def ensure_schema(engine: AsyncEngine, schema: str = DB_SCHEMA) -> None:
         await _create_skill_tables(conn, schema)
         await _create_procedure_tables(conn, schema)
         await _create_procedure_spec_governance_tables(conn, schema)
+        await _create_memory_source_ledger_table(conn, schema)
 
     logger.info("db_schema_ensured", schema=schema)
 
@@ -242,6 +243,50 @@ def _procedure_spec_governance_ddl(schema: str) -> list[str]:
             ON {schema}.procedure_spec_governance (procedure_spec_id)""",
         f"""CREATE INDEX IF NOT EXISTS idx_procedure_spec_governance_status
             ON {schema}.procedure_spec_governance (status)""",
+    ]
+
+
+async def _create_memory_source_ledger_table(conn, schema: str) -> None:
+    """Create memory_source_ledger table (IF NOT EXISTS) for fresh-DB startup path.
+
+    Normally created by Alembic migration e2f3a4b5c6d7.
+    Append-only DB memory truth (ADR 0060, P2-M2d).
+    """
+    for ddl in _memory_source_ledger_ddl(schema):
+        await conn.execute(text(ddl))
+
+
+def _memory_source_ledger_ddl(schema: str) -> list[str]:
+    """Return idempotent DDL for the memory_source_ledger table."""
+    return [
+        f"""CREATE TABLE IF NOT EXISTS {schema}.memory_source_ledger (
+            event_id VARCHAR(36) PRIMARY KEY,
+            entry_id VARCHAR(36) NOT NULL,
+            event_type VARCHAR(16) NOT NULL DEFAULT 'append',
+            scope_key VARCHAR(128) NOT NULL DEFAULT 'main',
+            source VARCHAR(32) NOT NULL,
+            source_session_id VARCHAR(256),
+            content TEXT NOT NULL,
+            metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+        f"""CREATE INDEX IF NOT EXISTS idx_memory_source_ledger_entry_id
+            ON {schema}.memory_source_ledger (entry_id)""",
+        f"""CREATE INDEX IF NOT EXISTS idx_memory_source_ledger_scope
+            ON {schema}.memory_source_ledger (scope_key)""",
+        f"""CREATE INDEX IF NOT EXISTS idx_memory_source_ledger_created_at
+            ON {schema}.memory_source_ledger (created_at)""",
+        f"""DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE schemaname = '{schema}'
+                  AND indexname = 'uq_memory_source_ledger_entry_append'
+            ) THEN
+                CREATE UNIQUE INDEX uq_memory_source_ledger_entry_append
+                    ON {schema}.memory_source_ledger (entry_id)
+                    WHERE event_type = 'append';
+            END IF;
+        END $$""",
     ]
 
 

@@ -64,14 +64,33 @@ class MemoryAppendTool(BaseTool):
 
         scope_key = context.scope_key if context else "main"
         source_session_id = context.session_id if context else None
-        path = await self._writer.append_daily_note(
+        result = await self._writer.append_daily_note(
             text=text.strip(),
             scope_key=scope_key,
             source="user",
             source_session_id=source_session_id,
         )
-        return {
+
+        response: dict = {
             "ok": True,
-            "path": str(path),
-            "message": f"Memory saved to {path.name}",
+            "entry_id": result.entry_id,
+            "ledger_written": result.ledger_written,
+            "projection_written": result.projection_written,
         }
+
+        if result.ledger_written and result.projection_written:
+            response["message"] = f"Memory saved (entry_id: {result.entry_id})"
+        elif result.ledger_written:
+            response["message"] = (
+                f"Memory saved to DB ledger (entry_id: {result.entry_id}); "
+                "workspace projection pending"
+            )
+        elif result.projection_written and result.projection_path:
+            response["message"] = f"Memory saved to {result.projection_path.name}"
+        else:
+            response["message"] = "Memory write completed"
+
+        if result.projection_path:
+            response["path"] = str(result.projection_path)
+
+        return response

@@ -82,6 +82,7 @@ class TestParseEntryMetadata:
         )
         meta = MemoryIndexer._parse_entry_metadata(text)
         assert meta["entry_id"] == "0195d9d7-6f5e-7d9b-a2d3-8a4d4f3d2c11"
+        assert meta["source"] == "user"
         assert meta["scope"] == "main"
         assert meta["source_session_id"] == "telegram:peer:123"
 
@@ -89,6 +90,7 @@ class TestParseEntryMetadata:
         text = "[10:00] (source: user, scope: main)"
         meta = MemoryIndexer._parse_entry_metadata(text)
         assert meta["entry_id"] is None
+        assert meta["source"] == "user"
         assert meta["scope"] == "main"
         assert meta["source_session_id"] is None
 
@@ -96,6 +98,7 @@ class TestParseEntryMetadata:
         text = "[10:00] some old note"
         meta = MemoryIndexer._parse_entry_metadata(text)
         assert meta["entry_id"] is None
+        assert meta["source"] is None
         assert meta["scope"] == "main"
         assert meta["source_session_id"] is None
 
@@ -126,8 +129,21 @@ class TestParseEntryMetadata:
         """Plain text without [HH:MM] prefix returns all defaults."""
         meta = MemoryIndexer._parse_entry_metadata("Just plain content")
         assert meta["entry_id"] is None
+        assert meta["source"] is None
         assert meta["scope"] == "main"
         assert meta["source_session_id"] is None
+
+    def test_source_compaction_flush(self) -> None:
+        """P2-M2d: source field extraction for compaction_flush."""
+        text = "[10:00] (entry_id: abc-123, source: compaction_flush, scope: main)"
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["source"] == "compaction_flush"
+
+    def test_missing_source_returns_none(self) -> None:
+        """P2-M2d: missing source field returns None."""
+        text = "[10:00] (entry_id: abc-123, scope: main)"
+        meta = MemoryIndexer._parse_entry_metadata(text)
+        assert meta["source"] is None
 
 
 class TestParseDailyEntries:

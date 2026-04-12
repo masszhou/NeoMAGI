@@ -240,6 +240,44 @@ async def _reindex_memory_entries(
     logger.info("restore_step_7_done", entries=entry_count)
 
 
+async def _check_memory_source_ledger(
+    engine: object,
+    *,
+    results: list[tuple[str, str]],
+) -> None:
+    """Lightweight check: verify memory_source_ledger table exists and log row count."""
+    from sqlalchemy import text
+
+    from src.constants import DB_SCHEMA
+
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text(
+                f"SELECT EXISTS ("
+                f"  SELECT 1 FROM information_schema.tables "
+                f"  WHERE table_schema = '{DB_SCHEMA}' "
+                f"  AND table_name = 'memory_source_ledger'"
+                f")"
+            ))
+            exists = result.scalar()
+            if exists:
+                count_result = await conn.execute(
+                    text(f"SELECT COUNT(*) FROM {DB_SCHEMA}.memory_source_ledger")
+                )
+                row_count = count_result.scalar() or 0
+                results.append(("7.5. memory_source_ledger", f"OK ({row_count} rows)"))
+                logger.info("restore_ledger_check_done", rows=row_count)
+            else:
+                _fail_restore_step(
+                    results, "7.5. memory_source_ledger",
+                    "memory_source_ledger table missing after ensure_schema "
+                    "(memory truth table required by ADR 0060)",
+                )
+    except Exception as e:
+        results.append(("7.5. memory_source_ledger", f"WARN ({type(e).__name__})"))
+        logger.warning("restore_ledger_check_failed", error=str(e))
+
+
 async def _run_restore_preflight(
     settings: object,
     engine: object,
@@ -282,6 +320,7 @@ async def run_restore(db_dump: Path, workspace_archive: Path) -> None:
         )
         await _truncate_memory_entries(engine, results=results)
         await _reindex_memory_entries(session_factory, settings.memory, results=results)
+        await _check_memory_source_ledger(engine, results=results)
         report = await _run_restore_preflight(settings, engine, results=results)
     finally:
         await engine.dispose()

@@ -14,6 +14,7 @@ import pytest
 from src.infra.doctor import (
     _check_budget_status,
     _check_memory_index_health,
+    _check_memory_ledger_parity,
     _check_memory_reindex_dryrun,
     _check_provider_connectivity,
     _check_session_activity,
@@ -671,3 +672,54 @@ class TestDoctorReport:
         s = report.summary()
         assert "doctor PASS" in s
         assert "mode=deep" in s
+
+
+class TestCheckMemoryLedgerParity:
+    """D5: memory ledger parity check (P2-M2d)."""
+
+    @pytest.mark.asyncio
+    async def test_no_ledger_table_returns_ok(self) -> None:
+        settings = _make_settings()
+        engine = _mock_engine_with_responses({"information_schema": False})
+        result = await _check_memory_ledger_parity(settings, engine)
+        assert result.status == CheckStatus.OK
+        assert "not present" in result.evidence
+
+    @pytest.mark.asyncio
+    async def test_consistent_returns_ok(self) -> None:
+        settings = _make_settings()
+        engine = _mock_engine_with_responses({"information_schema": True})
+
+        from src.memory.parity import ParityReport
+
+        consistent_report = ParityReport(ledger_count=5, workspace_count=5, matched=5)
+        with patch(
+            "src.memory.parity.MemoryParityChecker.check",
+            new_callable=AsyncMock,
+            return_value=consistent_report,
+        ):
+            result = await _check_memory_ledger_parity(settings, engine)
+        assert result.status == CheckStatus.OK
+        assert "consistent" in result.evidence
+
+    @pytest.mark.asyncio
+    async def test_discrepancy_returns_warn(self) -> None:
+        settings = _make_settings()
+        engine = _mock_engine_with_responses({"information_schema": True})
+
+        from src.memory.parity import ParityReport
+
+        drift_report = ParityReport(
+            ledger_count=3, workspace_count=2,
+            only_in_ledger=["e3"], matched=2,
+            content_mismatch=["e1"],
+        )
+        with patch(
+            "src.memory.parity.MemoryParityChecker.check",
+            new_callable=AsyncMock,
+            return_value=drift_report,
+        ):
+            result = await _check_memory_ledger_parity(settings, engine)
+        assert result.status == CheckStatus.WARN
+        assert "only_in_ledger=1" in result.evidence
+        assert "content_mismatch=1" in result.evidence

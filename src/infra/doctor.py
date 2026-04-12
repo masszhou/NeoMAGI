@@ -105,6 +105,7 @@ async def _collect_standard_checks(settings, db_engine) -> list[CheckResult]:
         checks.append(await _check_memory_index_health(settings, db_engine))
         checks.append(await _check_budget_status(db_engine))
         checks.append(await _check_session_activity(db_engine))
+        checks.append(await _check_memory_ledger_parity(settings, db_engine))
     return checks
 
 
@@ -328,6 +329,77 @@ async def _check_session_activity(engine: AsyncEngine) -> CheckResult:
             evidence=f"Session activity check failed: {type(e).__name__}",
             impact="Cannot verify session state",
             next_action="Check sessions table",
+        )
+
+
+# ── D5: memory ledger parity (P2-M2d) ──
+
+
+async def _check_memory_ledger_parity(
+    settings: Settings, engine: AsyncEngine,
+) -> CheckResult:
+    """D5: Compare memory source ledger with workspace daily note files."""
+    try:
+        # Check if ledger table exists
+        async with engine.connect() as conn:
+            result = await conn.execute(text(
+                f"SELECT EXISTS ("
+                f"  SELECT 1 FROM information_schema.tables "
+                f"  WHERE table_schema = '{DB_SCHEMA}' "
+                f"  AND table_name = 'memory_source_ledger'"
+                f")"
+            ))
+            table_exists = result.scalar()
+
+        if not table_exists:
+            return CheckResult(
+                name="memory_ledger_parity", status=CheckStatus.OK,
+                evidence="ledger table not present (P2-M2d not initialized)",
+                impact="", next_action="",
+            )
+
+        from src.memory.ledger import MemoryLedgerWriter
+        from src.memory.parity import MemoryParityChecker
+        from src.session.database import make_session_factory
+
+        session_factory = make_session_factory(engine)
+        ledger = MemoryLedgerWriter(session_factory)
+        checker = MemoryParityChecker(ledger, settings.memory.workspace_path.resolve())
+        report = await checker.check()
+
+        if report.is_consistent:
+            return CheckResult(
+                name="memory_ledger_parity", status=CheckStatus.OK,
+                evidence=(
+                    f"Ledger and workspace consistent: "
+                    f"{report.matched} matched, {report.ledger_count} ledger, "
+                    f"{report.workspace_count} workspace"
+                ),
+                impact="", next_action="",
+            )
+
+        parts = []
+        if report.only_in_ledger:
+            parts.append(f"only_in_ledger={len(report.only_in_ledger)}")
+        if report.only_in_workspace:
+            parts.append(f"only_in_workspace={len(report.only_in_workspace)}")
+        if report.content_mismatch:
+            parts.append(f"content_mismatch={len(report.content_mismatch)}")
+        if report.metadata_mismatch:
+            parts.append(f"metadata_mismatch={len(report.metadata_mismatch)}")
+
+        return CheckResult(
+            name="memory_ledger_parity", status=CheckStatus.WARN,
+            evidence=f"Parity drift: {', '.join(parts)} (matched={report.matched})",
+            impact="DB ledger and workspace daily notes are out of sync",
+            next_action="Investigate drift; ledger is truth (ADR 0060)",
+        )
+    except Exception as e:
+        return CheckResult(
+            name="memory_ledger_parity", status=CheckStatus.WARN,
+            evidence=f"Ledger parity check failed: {type(e).__name__}",
+            impact="Cannot verify memory ledger/workspace consistency",
+            next_action="Check database connectivity and memory_source_ledger table",
         )
 
 

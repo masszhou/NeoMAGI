@@ -30,12 +30,13 @@ class TestBackupTruthTables:
     def test_truth_tables_list(self) -> None:
         from scripts.backup import TRUTH_TABLES
 
-        assert len(TRUTH_TABLES) == 5
+        assert len(TRUTH_TABLES) == 6
         assert "neomagi.sessions" in TRUTH_TABLES
         assert "neomagi.messages" in TRUTH_TABLES
         assert "neomagi.soul_versions" in TRUTH_TABLES
         assert "neomagi.budget_state" in TRUTH_TABLES
         assert "neomagi.budget_reservations" in TRUTH_TABLES
+        assert "neomagi.memory_source_ledger" in TRUTH_TABLES
 
     def test_memory_entries_excluded(self) -> None:
         from scripts.backup import TRUTH_TABLES
@@ -78,13 +79,13 @@ class TestRunBackup:
         pg_dump_call = mock_run.call_args_list[0]
         cmd = pg_dump_call[0][0]
 
-        # Verify --table args for all 5 truth tables
+        # Verify --table args for all truth tables
         table_args = []
         for i, arg in enumerate(cmd):
             if arg == "--table" and i + 1 < len(cmd):
                 table_args.append(cmd[i + 1])
 
-        assert len(table_args) == 5
+        assert len(table_args) == len(TRUTH_TABLES)
         for t in TRUTH_TABLES:
             assert t in table_args
 

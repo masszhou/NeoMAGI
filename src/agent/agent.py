@@ -66,6 +66,7 @@ class AgentLoop:
         skill_projector: SkillProjector | None = None,
         skill_learner: object | None = None,
         procedure_runtime: ProcedureRuntime | None = None,
+        memory_writer: MemoryWriter | None = None,
     ) -> None:
         self._model_client = model_client
         self._session_manager = session_manager
@@ -89,7 +90,9 @@ class AgentLoop:
         self._skill_projector = skill_projector
         self._skill_learner = skill_learner
         self._procedure_runtime = procedure_runtime
-        if memory_settings is not None:
+        if memory_writer is not None:
+            self._memory_writer = memory_writer
+        elif memory_settings is not None:
             self._memory_writer = MemoryWriter(workspace_dir, memory_settings)
         if compaction_settings is not None:
             self._budget_tracker = BudgetTracker(compaction_settings, model)

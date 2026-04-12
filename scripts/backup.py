@@ -29,6 +29,7 @@ TRUTH_TABLES = [
     "neomagi.soul_versions",
     "neomagi.budget_state",
     "neomagi.budget_reservations",
+    "neomagi.memory_source_ledger",
 ]
 
 

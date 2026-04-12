@@ -29,6 +29,7 @@ _REQUIRED_TABLES = frozenset({
     "messages",
     "memory_entries",
     "soul_versions",
+    "memory_source_ledger",
 })
 
 _BUDGET_TABLES = frozenset({

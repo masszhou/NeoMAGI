@@ -203,9 +203,15 @@ async def _restore_active_wrappers(wrapper_tool_store, tool_registry) -> int:
 
 async def _build_memory_and_tools(settings, db_session_factory):
     """Build memory stack + tool registry + skill runtime (incl. learner)."""
+    from src.memory.ledger import MemoryLedgerWriter
+
     memory_indexer = MemoryIndexer(db_session_factory, settings.memory)
     memory_searcher = MemorySearcher(db_session_factory, settings.memory)
-    memory_writer = MemoryWriter(settings.workspace_dir, settings.memory, indexer=memory_indexer)
+    memory_ledger = MemoryLedgerWriter(db_session_factory)
+    memory_writer = MemoryWriter(
+        settings.workspace_dir, settings.memory,
+        indexer=memory_indexer, ledger=memory_ledger,
+    )
 
     from src.memory.evolution import EvolutionEngine
 
@@ -233,7 +239,7 @@ async def _build_memory_and_tools(settings, db_session_factory):
     skill_learner = SkillLearner(skill_store, governance_engine)
 
     return (
-        memory_searcher, evolution_engine, tool_registry,
+        memory_searcher, memory_writer, evolution_engine, tool_registry,
         skill_resolver, skill_projector, skill_learner,
         procedure_runtime,
     )
@@ -354,7 +360,8 @@ def _register_procedure_tools(tool_registry):
 def _build_provider_registry(settings, session_manager, memory_searcher,
                              evolution_engine, tool_registry, health_tracker,
                              skill_resolver=None, skill_projector=None,
-                             skill_learner=None, procedure_runtime=None):
+                             skill_learner=None, procedure_runtime=None,
+                             memory_writer=None):
     """Register OpenAI + optional Gemini providers."""
     def _make_agent_loop(client: OpenAICompatModelClient, model: str) -> AgentLoop:
         return AgentLoop(
@@ -366,6 +373,7 @@ def _build_provider_registry(settings, session_manager, memory_searcher,
             skill_resolver=skill_resolver, skill_projector=skill_projector,
             skill_learner=skill_learner,
             procedure_runtime=procedure_runtime,
+            memory_writer=memory_writer,
         )
 
     registry = AgentLoopRegistry(default_provider=settings.provider.active)
@@ -450,7 +458,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         default_mode=ToolMode(settings.session.default_mode),
     )
     (
-        memory_searcher, evolution_engine, tool_registry,
+        memory_searcher, memory_writer, evolution_engine, tool_registry,
         skill_resolver, skill_projector, skill_learner,
         procedure_runtime,
     ) = await _build_memory_and_tools(settings, db_session_factory)
@@ -461,6 +469,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         skill_resolver=skill_resolver, skill_projector=skill_projector,
         skill_learner=skill_learner,
         procedure_runtime=procedure_runtime,
+        memory_writer=memory_writer,
     )
     budget_gate = BudgetGate(engine, schema=settings.database.schema_)
     _bind_app_state(app, registry=registry, session_manager=session_manager,
