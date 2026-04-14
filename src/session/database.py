@@ -84,7 +84,19 @@ async def _add_memory_entry_columns(conn, schema: str) -> None:
 
 
 async def _create_search_trigger(conn, schema: str) -> None:
-    """Create or replace the search vector trigger for memory_entries."""
+    """Create or replace the search vector trigger for memory_entries.
+
+    P2-M3c: uses search_text (Jieba-segmented) with fallback to content.
+    Title remains weight A (short, already keyword-friendly).
+    search_text (or content fallback) gets weight B.
+    """
+    # Add search_text column (P2-M3c, idempotent)
+    await conn.execute(
+        text(
+            f"ALTER TABLE {schema}.memory_entries"
+            f" ADD COLUMN IF NOT EXISTS search_text TEXT"
+        )
+    )
     await conn.execute(
         text(f"""
         CREATE OR REPLACE FUNCTION {schema}.memory_entries_search_vector_update()
@@ -92,7 +104,7 @@ async def _create_search_trigger(conn, schema: str) -> None:
         BEGIN
             NEW.search_vector :=
                 setweight(to_tsvector('simple', coalesce(NEW.title, '')), 'A') ||
-                setweight(to_tsvector('simple', coalesce(NEW.content, '')), 'B');
+                setweight(to_tsvector('simple', coalesce(NEW.search_text, NEW.content, '')), 'B');
             RETURN NEW;
         END;
         $$ LANGUAGE plpgsql

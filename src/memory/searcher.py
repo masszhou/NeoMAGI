@@ -16,6 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import DB_SCHEMA
+from src.memory.query_processor import normalize_query
+from src.memory.visibility import MEMORY_VISIBILITY_POLICY_VERSION
 
 if TYPE_CHECKING:
     from src.config.settings import MemorySettings
@@ -125,17 +127,29 @@ class MemorySearcher:
         source_types: list[str] | None = None,
         principal_id: str | None = None,
     ) -> list[MemorySearchResult]:
-        """Execute tsvector search with scope + principal + visibility filtering."""
+        """Execute tsvector search with scope + principal + visibility filtering.
+
+        P2-M3c: applies Jieba CJK segmentation via normalize_query before tsquery.
+        """
         if not query or not query.strip():
             return []
 
+        normalized = normalize_query(query)
+        if not normalized:
+            return []
+
         search_sql, params = self._build_search_sql(
-            query, scope_key=scope_key, limit=limit,
+            normalized, scope_key=scope_key, limit=limit,
             min_score=min_score, source_types=source_types,
             principal_id=principal_id,
         )
         results = await self._execute_search(search_sql, params)
 
-        logger.info("memory_search", query=query[:50], scope_key=scope_key,
-                     results=len(results))
+        logger.info(
+            "memory_search_filtered",
+            query=query[:50], scope_key=scope_key,
+            principal_id=principal_id,
+            visibility_policy_version=MEMORY_VISIBILITY_POLICY_VERSION,
+            result_count=len(results),
+        )
         return results

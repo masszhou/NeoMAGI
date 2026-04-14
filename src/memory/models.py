@@ -60,6 +60,7 @@ class MemoryEntry(Base):
     )
     title = Column(Text, nullable=False, default="")
     content = Column(Text, nullable=False)
+    search_text = Column(Text, nullable=True)  # P2-M3c: Jieba-segmented content for tsvector
     tags = Column(ARRAY(Text), default=list)
     confidence = Column(Float, nullable=True)
     search_vector = Column(TSVECTOR, nullable=True)

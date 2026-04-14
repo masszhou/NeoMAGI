@@ -102,8 +102,10 @@ async def _run_reindex(scope_key: str) -> int:
     from src.constants import DB_SCHEMA
     from src.memory.indexer import MemoryIndexer
     from src.memory.ledger import MemoryLedgerWriter
+    from src.memory.query_processor import warmup_jieba
     from src.session.database import create_db_engine, make_session_factory
 
+    warmup_jieba()  # P2-M3c: preload Jieba dict before reindex
     settings = get_settings()
     engine = await create_db_engine(settings.database)
     try:

@@ -468,6 +468,9 @@ def _log_settings_errors(exc: ValidationError) -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: initialize shared state on startup."""
     setup_logging(json_output=False)
+    # P2-M3c: preload Jieba dictionary to avoid first-search latency
+    from src.memory.query_processor import warmup_jieba
+    warmup_jieba()
     try:
         settings = _load_settings()
     except ValidationError as e:

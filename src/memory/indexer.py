@@ -17,6 +17,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.memory.models import MemoryEntry
+from src.memory.query_processor import segment_for_index
 
 if TYPE_CHECKING:
     from src.config.settings import MemorySettings
@@ -79,13 +80,15 @@ class MemoryIndexer:
             for title, body in sections:
                 if not body.strip():
                     continue
+                content = body.strip()
                 entry = MemoryEntry(
                     scope_key=scope_key,
                     source_type="curated",
                     source_path=rel_path,
                     source_date=None,
                     title=title,
-                    content=body.strip(),
+                    content=content,
+                    search_text=segment_for_index(content),
                     tags=[],
                     confidence=None,
                 )
@@ -172,6 +175,7 @@ class MemoryIndexer:
                     visibility=e.get("visibility", "private_to_principal"),
                     title="",
                     content=e["content"],
+                    search_text=segment_for_index(e["content"]),
                     tags=[],
                     confidence=None,
                 )
@@ -199,7 +203,10 @@ class MemoryIndexer:
         principal_id: str | None = None,
         visibility: str = "private_to_principal",
     ) -> int:
-        """Index a single entry directly (used by writer for incremental index)."""
+        """Index a single entry directly (used by writer for incremental index).
+
+        P2-M3c: populates search_text with Jieba-segmented content.
+        """
         async with self._db_factory() as db:
             entry = MemoryEntry(
                 entry_id=entry_id,
@@ -209,6 +216,7 @@ class MemoryIndexer:
                 source_date=source_date,
                 title=title,
                 content=content,
+                search_text=segment_for_index(content),
                 tags=tags or [],
                 confidence=confidence,
                 source_session_id=source_session_id,
@@ -245,11 +253,15 @@ class MemoryIndexer:
         return rows
 
     async def _persist_entries(self, rows: list[dict], rel_path: str) -> None:
-        """Delete-reinsert entries for a single source path."""
+        """Delete-reinsert entries for a single source path.
+
+        P2-M3c: populates search_text with Jieba-segmented content.
+        """
         async with self._db_factory() as db:
             await db.execute(delete(MemoryEntry).where(MemoryEntry.source_path == rel_path))
             for row in rows:
-                db.add(MemoryEntry(**row))
+                row_with_search = {**row, "search_text": segment_for_index(row["content"])}
+                db.add(MemoryEntry(**row_with_search))
             await db.commit()
 
     @staticmethod

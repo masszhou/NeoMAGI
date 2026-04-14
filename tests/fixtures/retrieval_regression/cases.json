@@ -1,0 +1,184 @@
+{
+  "cases": [
+    {
+      "id": "cjk_basic_01",
+      "category": "cjk_tokenization",
+      "description": "中文关键词 '记忆架构' 搜索应命中含该词的条目",
+      "indexed_entries": [
+        {
+          "entry_id": "cjk01-001",
+          "title": "Memory Architecture",
+          "content": "NeoMAGI 的记忆架构基于 PostgreSQL 的 tsvector 全文搜索",
+          "scope_key": "main"
+        }
+      ],
+      "query": "记忆架构",
+      "expected_entry_ids": ["cjk01-001"]
+    },
+    {
+      "id": "cjk_basic_02",
+      "category": "cjk_tokenization",
+      "description": "中文 '数据库连接' 搜索应命中含该词组的条目",
+      "indexed_entries": [
+        {
+          "entry_id": "cjk02-001",
+          "title": "DB Config",
+          "content": "数据库连接使用 asyncpg 驱动，配置通过 pydantic-settings 读取 .env",
+          "scope_key": "main"
+        }
+      ],
+      "query": "数据库连接",
+      "expected_entry_ids": ["cjk02-001"]
+    },
+    {
+      "id": "cjk_basic_03",
+      "category": "cjk_tokenization",
+      "description": "中文 '会话管理' 搜索应命中含该词的条目",
+      "indexed_entries": [
+        {
+          "entry_id": "cjk03-001",
+          "title": "Session Manager",
+          "content": "会话管理模块负责创建和销毁用户会话，支持多设备并发登录",
+          "scope_key": "main"
+        }
+      ],
+      "query": "会话管理",
+      "expected_entry_ids": ["cjk03-001"]
+    },
+    {
+      "id": "cjk_mixed_01",
+      "category": "cjk_tokenization",
+      "description": "中英混合 '异步 HTTP 请求' 搜索应命中相关条目",
+      "indexed_entries": [
+        {
+          "entry_id": "cjkmix01-001",
+          "title": "Async HTTP",
+          "content": "所有异步 HTTP 请求必须有 timeout，使用 httpx 或 aiohttp",
+          "scope_key": "main"
+        }
+      ],
+      "query": "异步 HTTP 请求",
+      "expected_entry_ids": ["cjkmix01-001"]
+    },
+    {
+      "id": "cjk_compound_01",
+      "category": "cjk_tokenization",
+      "description": "搜索 '身份验证' 应命中含 '认证' 或 '鉴权' 相关内容（分词覆盖）",
+      "indexed_entries": [
+        {
+          "entry_id": "cjkcmp01-001",
+          "title": "Auth Flow",
+          "content": "用户身份验证流程包括密码校验、JWT 签发和 WebSocket 鉴权握手",
+          "scope_key": "main"
+        }
+      ],
+      "query": "身份验证",
+      "expected_entry_ids": ["cjkcmp01-001"]
+    },
+    {
+      "id": "en_basic_01",
+      "category": "partial_match",
+      "description": "English query 'tsvector search' should hit entry about tsvector",
+      "indexed_entries": [
+        {
+          "entry_id": "en01-001",
+          "title": "Search Implementation",
+          "content": "Memory search uses PostgreSQL tsvector with ts_rank for relevance scoring",
+          "scope_key": "main"
+        }
+      ],
+      "query": "tsvector search",
+      "expected_entry_ids": ["en01-001"]
+    },
+    {
+      "id": "synonym_01",
+      "category": "synonym",
+      "description": "搜索 '数据库' 应能命中含 'PostgreSQL' 的条目",
+      "indexed_entries": [
+        {
+          "entry_id": "syn01-001",
+          "title": "Storage",
+          "content": "所有持久化走 PostgreSQL 17，使用 pgvector 扩展支持向量检索",
+          "scope_key": "main"
+        }
+      ],
+      "query": "数据库",
+      "expected_entry_ids": ["syn01-001"]
+    },
+    {
+      "id": "synonym_02",
+      "category": "synonym",
+      "description": "搜索 'config' 应能命中含 'settings' 或 '配置' 的条目",
+      "indexed_entries": [
+        {
+          "entry_id": "syn02-001",
+          "title": "Configuration",
+          "content": "配置加载优先级为环境变量 > .env > 默认值，使用 pydantic-settings",
+          "scope_key": "main"
+        }
+      ],
+      "query": "config",
+      "expected_entry_ids": ["syn02-001"]
+    },
+    {
+      "id": "semantic_gap_01",
+      "category": "semantic_gap",
+      "description": "搜索 '怎么存储用户信息' 应命中 principal/session 相关条目",
+      "indexed_entries": [
+        {
+          "entry_id": "sem01-001",
+          "title": "User Data",
+          "content": "principals 表存储用户身份信息，sessions 表管理会话状态和元数据",
+          "scope_key": "main"
+        }
+      ],
+      "query": "怎么存储用户信息",
+      "expected_entry_ids": ["sem01-001"]
+    },
+    {
+      "id": "semantic_gap_02",
+      "category": "semantic_gap",
+      "description": "搜索 'how to remember things' 应命中 memory 写入相关条目",
+      "indexed_entries": [
+        {
+          "entry_id": "sem02-001",
+          "title": "Memory Write",
+          "content": "Memory append writes daily notes to workspace files and source ledger for persistence",
+          "scope_key": "main"
+        }
+      ],
+      "query": "how to remember things",
+      "expected_entry_ids": ["sem02-001"]
+    },
+    {
+      "id": "cjk_long_query_01",
+      "category": "partial_match",
+      "description": "较长中文查询 '工具执行权限控制' 应命中含部分关键词的条目（权限不在内容中）",
+      "indexed_entries": [
+        {
+          "entry_id": "cjklong01-001",
+          "title": "Tool Permissions",
+          "content": "工具执行受会话模式控制，ToolModeError 在受限模式下拒绝工具调用",
+          "scope_key": "main"
+        }
+      ],
+      "query": "工具执行权限控制",
+      "expected_entry_ids": ["cjklong01-001"]
+    },
+    {
+      "id": "partial_match_01",
+      "category": "partial_match",
+      "description": "部分匹配 'daily note' 应命中 daily notes 相关条目",
+      "indexed_entries": [
+        {
+          "entry_id": "part01-001",
+          "title": "Daily Notes Writer",
+          "content": "MemoryWriter appends timestamped entries to daily note markdown files",
+          "scope_key": "main"
+        }
+      ],
+      "query": "daily note",
+      "expected_entry_ids": ["part01-001"]
+    }
+  ]
+}
