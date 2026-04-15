@@ -237,20 +237,35 @@ GATEWAY_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
 **不需要重启**——此 env 变更在下次 Gateway 启动时生效。
 
-### T04 Auth 模式：Principal 自动创建
+### T04 Auth 模式：Principal 创建
+
+Owner principal 的创建只在 Gateway lifespan 中通过 `PrincipalStore.ensure_owner()` 执行，`ensure_schema()` 不负责此步。以下脚本显式调用该方法：
 
 ```bash
 uv run python - <<'PY'
 import asyncio
 from sqlalchemy import text
 from src.config.settings import get_settings
-from src.session.database import create_db_engine, ensure_schema
+from src.auth.store import PrincipalStore
+from src.session.database import create_db_engine, ensure_schema, make_session_factory
 
 async def main():
     settings = get_settings()
     engine = await create_db_engine(settings.database)
-    # ensure_schema 会触发 ensure_owner
     await ensure_schema(engine, settings.database.schema_)
+    factory = make_session_factory(engine)
+
+    # 显式创建 owner principal（与 Gateway lifespan 同一逻辑）
+    if settings.auth.password_hash is None:
+        print("✗ AUTH_PASSWORD_HASH 未设置 — 先完成 T03")
+        await engine.dispose()
+        return
+
+    store = PrincipalStore(factory)
+    await store.ensure_owner(
+        name=settings.auth.owner_name,
+        password_hash=settings.auth.password_hash,
+    )
 
     schema = settings.database.schema_
     async with engine.connect() as conn:
@@ -268,7 +283,7 @@ PY
 ```
 
 - 预期：1 个 principal，role=`owner`，name=`TestOwner`
-- 如果已存在则不重复创建
+- 如果已存在则不重复创建（幂等）
 
 ### T05 Auth 模式：写入 owner 记忆 + visibility 过滤
 
@@ -409,7 +424,26 @@ uv run python -m src.backend.cli doctor
 
 本层的目标：确认真实浏览器 → Login → JWT → WebSocket → Agent → principal-filtered memory → LLM 回复。
 
-### 4.1 启动系统（Auth 模式）
+### 4.1 配置 Vite proxy（一次性）
+
+前端 auth store 使用同源请求（`/auth/status`、`/auth/login`），Vite dev server 需要将 `/auth` 和 `/ws` 代理到后端 `localhost:19789`。
+
+编辑 `src/frontend/vite.config.ts`，在 `server` 块中添加 proxy：
+
+```ts
+  server: {
+    port: 5173,
+    strictPort: true,
+    proxy: {
+      "/auth": "http://localhost:19789",
+      "/ws": { target: "ws://localhost:19789", ws: true },
+    },
+  },
+```
+
+**测试完成后可保留此 proxy（不影响生产构建）。**
+
+### 4.2 启动系统（Auth 模式）
 
 确保 `.env` 已配置 `AUTH_PASSWORD_HASH`（T03）。
 
@@ -421,12 +455,12 @@ uv run python -m src.backend.cli doctor
 
 1. 浏览器应显示 Login 表单（因 `AUTH_PASSWORD_HASH` 已配置）
 2. 输入错误密码 → 应显示 "Invalid password."
-3. 连续输入 5 次错误密码 → 应显示 "Too many attempts. Please wait."
+3. 连续输入 5 次错误密码（每次都显示 "Invalid password."）→ 第 6 次应显示 "Too many attempts. Please wait."（`max_failures=5`，第 5 次记录后锁定，第 6 次命中 `is_locked`）
 4. 等 5 分钟或重启后端重置限流 → 输入正确密码
 5. 登录成功 → 跳转到 Chat 界面，左上角应显示 `Connected`
 
 **关键观察点**：
-- 后端日志应出现 `auth_mode_enabled` → `login_success` → WebSocket `auth_success`
+- 后端日志应出现 `auth_mode_enabled`（启动时）→ WebSocket 连接后 `ws_connected`（含 `principal_id` 非空）
 - 若 Login 后 Chat 界面卡在 `Connecting...` → 检查 WebSocket pre-auth 流程（前端是否发送 `method: "auth"` RPC）
 - 若浏览器控制台出现 CORS 错误 → 检查 `GATEWAY_ALLOWED_ORIGINS` 是否包含 `http://localhost:5173`
 
@@ -501,18 +535,28 @@ uv run python -m src.backend.cli doctor
 
 ### T12 Daily notes visibility 与 workspace 文件的一致性
 
-目标：确认 PromptBuilder 从 workspace 文件加载的 daily notes 与 searcher 从 DB 查询的结果遵守同一 visibility policy。
+目标：确认 PromptBuilder 从 workspace 文件加载的 daily notes 正确过滤掉不可见条目。
+
+**步骤 1**：手动在今天的 daily note 文件中注入一条不可见的第二 principal 条目：
 
 ```bash
-# 查看今天的 workspace daily note 文件
-cat workspace/memory/$(date +%Y-%m-%d).md
+cat >> workspace/memory/$(date +%Y-%m-%d).md <<'ENTRY'
+---
+[23:59] (entry_id: fake-other-user, source: user, scope: main, principal: other-user-id-12345, visibility: private_to_principal)
+这是另一个用户的私密笔记，当前 owner 不应看到此内容
+ENTRY
 ```
 
-- 观察：文件中应包含 legacy 条目（无 `principal:` 字段）和 owner 条目（有 `principal: <owner_id>` 字段）
-- 文件是**全量**的（所有 principal 的条目都在同一文件中）
-- PromptBuilder 在加载时通过 `_filter_entries()` 过滤
+**步骤 2**：在 auth 模式 WebChat 中发消息触发 daily notes 加载（如"你好"），检查后端日志。
 
-**验证**：在 auth 模式下启动 Gateway，在 Chat 中发送一条触发 daily notes 加载的消息。后端日志中 `daily_notes_loaded` 的 `chars` 数应少于文件总大小（被过滤的条目不计入）。
+**步骤 3**：反向验证 — 切到 no-auth 模式重启 Gateway，同样发消息触发 daily notes 加载。
+
+**预期**：
+- Auth 模式（owner 登录）：Agent **不应**提到"另一个用户的私密笔记"内容（`principal: other-user-id-12345` 与当前 owner 不匹配 → `_filter_entries` 排除）
+- No-auth 模式（匿名）：Agent 同样**不应**看到该条目（匿名请求不可见 owned entries）
+- 后端日志 `daily_notes_loaded` 的 `chars` 数应小于 `wc -c workspace/memory/$(date +%Y-%m-%d).md` 的文件大小
+
+**清理**：测试后删除注入的 fake 条目（用编辑器删除 `---` + `[23:59]...另一个用户...` 块）。
 
 ### T13 Compaction 对 principal-tagged 记忆的影响
 
@@ -598,12 +642,19 @@ PY
 目标：确认 rate limiter 在真实 HTTP 交互中正确工作（in-memory 限流，不是 mock）。
 
 ```bash
-# 快速发 6 次错误密码登录
+# 快速发 6 次错误密码登录（后端端口 19789）
 for i in $(seq 1 6); do
-  curl -s -X POST http://localhost:8000/auth/login \
+  CODE=$(curl -s -X POST http://localhost:19789/auth/login \
     -H "Content-Type: application/json" \
     -H "Origin: http://localhost:5173" \
-    -d '{"password":"wrong"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'  [{i}] {d.get(\"detail\",{}).get(\"code\",\"?\")}')" 2>/dev/null || echo "  [$i] (parse error)"
+    -d '{"password":"wrong"}' | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('error', {}).get('code', '?'))
+except: print('parse_error')
+")
+  echo "  [$i] $CODE"
 done
 ```
 
@@ -613,15 +664,15 @@ done
 ### T16 Origin 检查（Auth 模式）
 
 ```bash
-# 从不在白名单中的 origin 发起请求
-curl -s -X POST http://localhost:8000/auth/login \
+# 从不在白名单中的 origin 发起请求（后端端口 19789）
+curl -s -X POST http://localhost:19789/auth/login \
   -H "Content-Type: application/json" \
   -H "Origin: http://evil.example.com" \
   -d '{"password":"anything"}' | python3 -m json.tool
 ```
 
-- 预期：403 + `ORIGIN_DENIED`
-- 如果返回 401（密码错误而非 origin 拒绝）→ origin 检查在 auth/login 路径上失效
+- 预期：403 + `{"error": {"code": "ORIGIN_DENIED", ...}}`
+- 如果返回 401（`AUTH_FAILED` 而非 `ORIGIN_DENIED`）→ origin 检查在 auth/login 路径上失效
 
 ## 6. 发现记录模板
 
