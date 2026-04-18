@@ -773,3 +773,18 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Files: 7 新增 + 13 修改 + 2 适配 = 22 files
 - Next: P2-M2 (Procedure Runtime 与多 Agent 执行) 或后续 P2-M3 post-review
 - Risk: 两套 trigger function 命名 (ensure_schema vs Alembic); pytest-asyncio pin <1.0.0 需持续关注
+
+## 2026-04-16 00:42 (local) | P2-M3 User Test Guide
+- Status: done
+- Done: P2-M3 人工验证测试指南 — 三层测试设计 (A: CLI 确定性脚本, B: WebChat 全链路, C: 架构缝隙探测)，覆盖 auth flow、memory visibility isolation、CJK 检索质量和跨模块交互
+- Scope:
+  - design_docs/phase2/p2_m3_user_test_guide.md: 16 个测试用例，含 copy-paste 脚本
+  - A 层：CLI + DB 直查 — auth 模式切换、principal 绑定、memory visibility 过滤
+  - B 层：WebChat 浏览器交互 — Login UI → JWT → WS auth → agent prompt → memory search → 结果注入
+  - C 层：人工边界探测 — automated tests 遗漏的跨模块交互缺陷
+- Review Findings (2 rounds, all fixed):
+  - R1 P1×2+P2×3+P3×1: T04 PrincipalStore.ensure_owner() 显式调用; Vite proxy 配置 /auth+/ws 到 19789; T08 rate limit 期望修正; T15/T16 curl 端口; T12 注入 fake second-principal entry; T08 日志事件名
+  - R2 P1×1+P2×4: T11 改用 CLI 核心断言 + incognito window; T10 缩窄搜索期望 (synonym gap); T12 确定性 _load_daily_notes() 脚本; T13 压缩触发证据; T15 auth-mode 前置检查; T12 PromptBuilder kwarg 修正 (settings → memory_settings)
+- Commits: 5bba98f (guide) + c37318a (R1 fix) + 026baea (R2 fix) + 412c1d6 (R2 kwarg fix)
+- Files: 1 新增 (design_docs/phase2/p2_m3_user_test_guide.md), 654+72+124+1 lines
+- Next: 实际测试design_docs/phase2/p2_m3_user_test_guide.md
