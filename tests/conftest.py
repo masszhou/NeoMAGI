@@ -116,30 +116,32 @@ async def db_session_factory(db_engine) -> async_sessionmaker[AsyncSession]:
 async def _integration_cleanup(request):
     """Truncate all tables after each async integration test for isolation.
 
-    Resolves db_session_factory lazily during *setup* (before yield) so the
-    fixture dependency chain is established while the event loop is accepting
-    new coroutines.  The actual TRUNCATE runs in teardown (after yield).
+    Uses request.fixturenames to check whether the test declared
+    db_session_factory.  The actual getfixturevalue call happens in
+    teardown (after yield) — by that point the fixture is already
+    resolved so it's a cache lookup, avoiding the nested
+    run_until_complete that breaks pytest-asyncio session-scoped loops.
 
-    Non-integration tests skip both setup resolution and teardown truncation.
-    Sync integration tests (WebSocket/TestClient) manage their own cleanup.
+    Non-integration tests and sync integration tests are skipped.
     """
-    is_integration = any(m.name == "integration" for m in request.node.iter_markers())
+    yield
+
+    if not any(m.name == "integration" for m in request.node.iter_markers()):
+        return
 
     # pytest-asyncio auto mode wraps async defs → iscoroutinefunction returns
     # False on the wrapper.  Use inspect.unwrap to check the original function.
-    is_async = asyncio.iscoroutinefunction(inspect.unwrap(request.node.obj))
+    if not asyncio.iscoroutinefunction(inspect.unwrap(request.node.obj)):
+        return
 
-    factory = None
-    if is_integration and is_async:
-        try:
-            factory = request.getfixturevalue("db_session_factory")
-        except Exception:
-            pass  # Test doesn't use the shared db fixture
+    # Only clean up tests that declared db_session_factory as a dependency.
+    # At teardown time the fixture is already resolved — getfixturevalue is
+    # a simple cache lookup, no event-loop setup triggered.
+    if "db_session_factory" not in request.fixturenames:
+        return
 
-    yield
-
-    if factory is not None:
-        await _truncate_integration_tables(factory)
+    factory = request.getfixturevalue("db_session_factory")
+    await _truncate_integration_tables(factory)
 
 
 async def _truncate_integration_tables(factory) -> None:
