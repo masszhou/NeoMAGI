@@ -3,12 +3,12 @@ doc_id: 019da552-06d8-720f-a9fe-1e2317ae53b2
 doc_id_format: uuidv7
 doc_id_assigned_at: 2026-04-19T12:38:29+02:00
 ---
-# P3 Daily Use Roadmap（草稿）
+# P3 Daily Use Roadmap
 
-> 状态：draft
+> 状态：approved
 > 日期：2026-04-19
 > 目标：把 NeoMAGI 从“治理与自进化实验平台”收敛到“每天可用的 personal agent”，优先补齐可替代部分 claude.ai / ChatGPT 日常使用的能力。
-> 技术口径：见 `design_docs/phase3/p3_daily_use_architecture_draft.md`。
+> 技术口径：见 `design_docs/phase3/p3_daily_use_architecture.md`。
 
 ## 1. 产品判断
 

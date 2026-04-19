@@ -23,7 +23,7 @@ doc_id_assigned_at: 2026-03-21T11:30:15+01:00
    - `P2-M2`：Procedure Runtime、多 agent runtime、handoff / steering / resume。
 
 5. `design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md`
-   - `P2-M2` 后置地基与 self-evolution 历史提案：`P2-M2c` / `P2-M2d` 仍作为前置地基；完整 self-evolution workflow 已不再作为 P3 主线，Phase 3 当前草稿见 `design_docs/phase3/`。
+   - `P2-M2` 后置地基与 self-evolution 历史提案：`P2-M2c` / `P2-M2d` 仍作为前置地基；完整 self-evolution workflow 已不再作为 P3 主线，Phase 3 当前设计基线见 `design_docs/phase3/`。
 
 6. `design_docs/phase2/p2_m3_architecture.md`
    - `P2-M3`：Principal & Memory Safety；不交付完整 Shared Companion，shared-space 默认为 deny-by-default 地基。
@@ -41,7 +41,7 @@ doc_id_assigned_at: 2026-03-21T11:30:15+01:00
 - `decisions/0060-memory-source-ledger-db-with-workspace-projections.md`
   - Memory truth 调整为 DB append-only ledger，workspace memory 文件作为 projection / export；`P2-M2d` 只做 schema / writer 双写预备，完整 read / reindex 切换归入 `P2-M3`。
 - `decisions/0061-phase2-scope-collapse-and-p3-self-evolution.md`
-  - P2 范围收缩到 `P2-M3`；原 P2-M4/P2-M5 移出 P2。该 ADR 保留历史决策背景，Phase 3 当前方向已调整为 daily-use 补完草稿。
+  - P2 范围收缩到 `P2-M3`；原 P2-M4/P2-M5 移出 P2。该 ADR 保留历史决策背景，Phase 3 当前方向已调整为 daily-use 补完设计基线。
 
 ## 3. 当前状态
 

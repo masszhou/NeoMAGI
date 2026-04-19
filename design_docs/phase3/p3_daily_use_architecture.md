@@ -3,11 +3,11 @@ doc_id: 019da565-26ae-76cd-9ec4-10f00a51c99f
 doc_id_format: uuidv7
 doc_id_assigned_at: 2026-04-19T12:59:22+02:00
 ---
-# P3 Daily Use Architecture（草稿）
+# P3 Daily Use Architecture
 
-> 状态：draft
+> 状态：approved
 > 日期：2026-04-19
-> 产品口径：见 `design_docs/phase3/p3_daily_use_roadmap_draft.md`。
+> 产品口径：见 `design_docs/phase3/p3_daily_use_roadmap.md`。
 > 用途：记录 P3 daily-use 补完的 high-level 技术决定，避免在 roadmap 中混入实现细节。
 
 ## 1. 架构原则

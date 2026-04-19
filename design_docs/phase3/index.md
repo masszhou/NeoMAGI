@@ -5,16 +5,16 @@ doc_id_assigned_at: 2026-04-11T18:07:12+02:00
 ---
 # Phase 3 Design Index
 
-> 状态：draft
-> 说明：Phase 3 当前切换为 daily use 补完方向草稿，不作为已批准实施计划。正式执行前仍需进入对应 `dev_docs/plans/phase3/` 计划文件并完成审批。
+> 状态：approved
+> 说明：Phase 3 当前切换为 daily use 补完方向设计基线；正式执行前仍需进入对应 `dev_docs/plans/phase3/` 计划文件并完成审批。
 
-## 1. 当前草稿
+## 1. 当前设计基线
 
-1. `design_docs/phase3/p3_daily_use_roadmap_draft.md`
-   - P3 daily use roadmap 草稿：只记录用户产品口径、目标、milestone 与验收。
+1. `design_docs/phase3/p3_daily_use_roadmap.md`
+   - P3 daily use roadmap：只记录用户产品口径、目标、milestone 与验收。
 
-2. `design_docs/phase3/p3_daily_use_architecture_draft.md`
-   - P3 daily use architecture 草稿：记录 runtime profile、provider、memory、web、artifact/run、CLI wrapper、部署与前端的 high-level 技术决定。
+2. `design_docs/phase3/p3_daily_use_architecture.md`
+   - P3 daily use architecture：记录 runtime profile、provider、memory、web、artifact/run、CLI wrapper、部署与前端的 high-level 技术决定。
 
 ## 2. Related Decisions
 

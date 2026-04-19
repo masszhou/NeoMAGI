@@ -819,3 +819,14 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Tests: 1938 unit passed, 41 frontend passed; type-check + build 通过
 - Next: P3 实用化与每日使用功能补全
 - Risk: OI-M3-01/04 影响多语种和语义查询场景的 memory search 可靠性，P3 需引入 embedding 检索
+
+## 2026-04-19 19:29 (local) | P3 Daily Use Design Approval
+- Status: done
+- Done: 用户批准 P3 daily-use roadmap 与 architecture 设计文档，移除 draft 文件名和文档状态。
+- Scope:
+  - `design_docs/phase3/p3_daily_use_roadmap.md`: approved roadmap baseline
+  - `design_docs/phase3/p3_daily_use_architecture.md`: approved architecture baseline
+  - `design_docs/phase3/index.md` 与根 `design_docs/index.md`: 更新 Phase 3 入口说明
+  - ADR 0062~0065 与 Phase 2 历史文档：同步正式文件链接与“设计基线”措辞
+- Tests: docs-only change; no code test run
+- Next: 如要进入实现，需在 `dev_docs/plans/phase3/` 生成对应实施计划并完成审批。

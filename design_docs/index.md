@@ -12,7 +12,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
 
 - Phase 1 milestone 设计文档已整体归档到 `design_docs/phase1/`。
 - Phase 2 文档已开始进入 `design_docs/phase2/`。
-- Phase 3 当前有 daily-use roadmap 草稿入口 `design_docs/phase3/`，不作为已批准实施计划。
+- Phase 3 当前有 daily-use roadmap / architecture 已批准设计基线入口 `design_docs/phase3/`，不作为已批准实施计划。
 - 根目录当前只保留跨阶段文档与当前 phase 的高层入口，目的是减少默认上下文负担。
 - 为避免跨 phase 歧义，跨阶段文档中的 milestone 编号默认采用 `P1-M*` / `P2-M*` 形式。
 - 若任务明确需要历史 milestone 细节、旧验收口径或回归考古，再进入 `design_docs/phase1/`。
@@ -53,7 +53,7 @@ doc_id_assigned_at: 2026-04-06T21:49:14+02:00
    - 只有在需要 Phase 1 历史设计细节时再进入。
 
 12. `design_docs/phase3/index.md`
-   - 只有在需要 Phase 3 daily-use 草稿时再进入；当前不作为 active implementation plan。
+   - 只有在需要 Phase 3 daily-use 设计基线时再进入；当前不作为 active implementation plan。
 
 ## 3. 当前默认激活文档
 

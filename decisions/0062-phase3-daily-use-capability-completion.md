@@ -8,7 +8,7 @@ doc_id_assigned_at: 2026-04-19T13:51:29+02:00
 - Status: accepted
 - Date: 2026-04-19
 - Supersedes: Phase 3 direction in ADR 0061
-- Related: `design_docs/phase3/p3_daily_use_roadmap_draft.md`, `design_docs/phase3/p3_daily_use_architecture_draft.md`
+- Related: `design_docs/phase3/p3_daily_use_roadmap.md`, `design_docs/phase3/p3_daily_use_architecture.md`
 
 ## 背景
 
@@ -51,7 +51,7 @@ NeoMAGI 的核心使命仍是 personal agent：持续记忆、代表用户信息
 
 ## 影响
 
-- `design_docs/phase3/` 当前入口改为 daily-use roadmap / architecture 草稿。
+- `design_docs/phase3/` 当前入口改为 daily-use roadmap / architecture 已批准设计基线。
 - `design_docs/phase2/p2_m2_post_self_evolution_staged_plan.md` 改为 historical / superseded 提案口径。
 - P3 implementation plan 应围绕 daily use 拆分，而不是围绕 self-evolution workflow 拆分。
 - Procedure Runtime 和 Skill Learner 不删除，但进入 maintenance / observe-only 状态。
