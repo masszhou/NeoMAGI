@@ -444,7 +444,8 @@ P3 是 personal-only 阶段，不做复杂 DLP。
 - WebChat 不直接暴露公网。
 - 本地使用 SSH channel 转发 HTTP WebChat。
 - 远程使用 Tailscale 登录。
-- 可考虑让 FastAPI 绑定到 Tailscale interface，访问方式为 `http://<tailscale-hostname>:8000`。
+- 可考虑让 FastAPI 绑定到 Tailscale interface，默认访问方式为 `http://<tailscale-hostname>:19789`。
+- Gateway 端口以 `settings.gateway.port` / `GATEWAY_PORT` 为 SSOT；如覆盖端口，部署文档和访问地址必须以实际配置为准。
 
 ## 10. Frontend 最小面
 
