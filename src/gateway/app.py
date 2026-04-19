@@ -734,6 +734,9 @@ async def _authenticate_ws(websocket: WebSocket) -> str | None:
         raw = await asyncio.wait_for(
             websocket.receive_text(), timeout=_WS_AUTH_TIMEOUT_S,
         )
+    except WebSocketDisconnect:
+        logger.debug("ws_pre_auth_disconnect")
+        return None
     except TimeoutError:
         error = RPCError(
             id="auth", error=RPCErrorData(code="AUTH_TIMEOUT", message="Auth timeout"),
