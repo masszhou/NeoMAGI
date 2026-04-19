@@ -20,7 +20,6 @@ from src.procedures.types import ActiveProcedure
 from src.tools.context import ToolContext
 from src.tools.registry import ToolRegistry
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------

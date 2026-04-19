@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from src.procedures.handoff import (
     MAX_ITEM_CHARS,
-    MAX_PACKET_BYTES,
     MAX_TASK_BRIEF_CHARS,
     HandoffPacket,
     HandoffPacketBuilder,

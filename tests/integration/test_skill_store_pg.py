@@ -80,7 +80,9 @@ async def test_skill_store_governance_jsonb_with_asyncpg(
         object_kind=GrowthObjectKind.skill_spec, object_id=spec.id,
         intent="Create skill: general",
         risk_notes="New skill proposal via SkillLearner",
-        diff_summary="记住这个方法：以后这类任务，先总结目标，再列出 3 条执行步骤，最后给验证结果。",
+        diff_summary=(
+            "记住这个方法：以后这类任务，先总结目标，再列出 3 条执行步骤，最后给验证结果。"
+        ),
         payload={"skill_spec": spec.model_dump(), "skill_evidence": updated_evidence.model_dump()},
         proposed_by="user",
     )

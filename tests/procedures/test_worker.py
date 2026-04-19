@@ -7,12 +7,11 @@ from typing import Any
 
 import pytest
 
-from src.procedures.handoff import HandoffPacket, WorkerResult
+from src.procedures.handoff import HandoffPacket
 from src.procedures.roles import AgentRole, RoleSpec
 from src.procedures.worker import WorkerExecutor
 from src.tools.base import BaseTool, ToolGroup, ToolMode
 from src.tools.registry import ToolRegistry
-
 
 # ---------------------------------------------------------------------------
 # Fakes

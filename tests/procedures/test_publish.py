@@ -12,7 +12,6 @@ from src.procedures.roles import AgentRole
 from src.procedures.types import ActiveProcedure
 from src.tools.context import ToolContext
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

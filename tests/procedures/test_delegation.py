@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
 from src.procedures.delegation import DelegationTool, require_role
 from src.procedures.deps import ProcedureActionDeps
 from src.procedures.roles import AgentRole
-from src.procedures.types import ActiveProcedure, GuardDecision
-from src.tools.base import BaseTool, ToolGroup, ToolMode
+from src.procedures.types import ActiveProcedure
+from src.tools.base import BaseTool, ToolMode
 from src.tools.context import ToolContext
 from src.tools.registry import ToolRegistry
-
 
 # ---------------------------------------------------------------------------
 # Fakes

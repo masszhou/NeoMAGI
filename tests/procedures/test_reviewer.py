@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
 from src.procedures.deps import ProcedureActionDeps
-from src.procedures.handoff import ReviewResult
 from src.procedures.reviewer import ReviewerExecutor, ReviewTool, _parse_review
-from src.procedures.roles import AgentRole
 from src.procedures.types import ActiveProcedure
 from src.tools.context import ToolContext
-
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -64,7 +60,8 @@ def _make_deps(active: ActiveProcedure, response: str = '{"approved": true}'):
 
 class TestParseReview:
     def test_valid_json(self):
-        r = _parse_review('{"approved": true, "concerns": ["c1"], "suggestions": [], "evidence": []}')
+        raw = '{"approved": true, "concerns": ["c1"], "suggestions": [], "evidence": []}'
+        r = _parse_review(raw)
         assert r.approved is True
         assert r.concerns == ("c1",)
 

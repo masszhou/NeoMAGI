@@ -1,4 +1,4 @@
-"""Tests for P2-M2b Slice A: role types, ToolContext extension, ProcedureActionDeps, BaseTool marker."""
+"""Tests for P2-M2b Slice A: role types, ToolContext, ProcedureActionDeps, BaseTool."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from src.procedures.roles import (
     RoleSpec,
 )
 from src.tools.base import BaseTool, ToolGroup, ToolMode
-
 
 # ---------------------------------------------------------------------------
 # Import smoke test (D8 — no circular import)
