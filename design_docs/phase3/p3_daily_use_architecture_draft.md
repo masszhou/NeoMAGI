@@ -117,22 +117,26 @@ profile 返回形态可包含：
 
 ### 4.1 Memory Truth
 
-P3 尽快把 memory truth 收口为 Postgres，不做长期双写迁移。
+状态：已达成。生产 daily path 的机器写入 memory 已经采用 Postgres `memory_source_ledger` 作为 truth；workspace Markdown 是 best-effort human-readable projection；`memory_entries` 是 retrieval projection。
 
-写入规则：
+当前机制：
 
-- `memory_append` 先写 DB。
+- `memory_append` 先写 Postgres ledger。
 - DB 写入成功后，同步 append 到 workspace Markdown projection。
-- DB 是真源。
-- Markdown projection 失败不回滚 DB。
-- Markdown 可以通过脚本从 DB 重建。
+- DB ledger 是 truth；Markdown projection 失败不回滚 DB。
+- `memory_entries` 是检索投影；增量索引由 ledger write 驱动。
+- 全量 `reindex` 在 ledger 有数据时从 ledger current view 重建 `memory_entries`。
+
+P3 不再做 memory truth 迁移。P3 只补齐 projection / export hardening：
+
 - projection 文件必须标注：`This file is auto-generated. Manual edits will be lost.`
-
-辅助工具：
-
-- 手动 checksum / reconcile 脚本。
-- 手动 projection rebuild 脚本。
+- 新增手动 memory projection rebuild 命令，从 ledger 重新渲染 workspace Markdown。
+- 保留 doctor / parity check，必要时补 checksum 输出；检查只报告 drift，不自动修复。
+- 修正文档中仍把 workspace Markdown 写成 truth 的旧表述。
+- 将 no-ledger writer fallback 限定为 legacy / test-only；daily profile 必须使用 ledger-wired writer。
 - 暂不需要定时任务。
+- 不做 DB 与 Markdown 双主同步。
+- 不把直接编辑 workspace Markdown 自动导入长期 memory。
 
 ### 4.2 Memory Search Query Expansion
 

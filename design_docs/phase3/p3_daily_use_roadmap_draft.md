@@ -43,7 +43,7 @@ P3 要解决的用户问题：
 - Web search / fetch / URL fetching，且从第一天带来源。
 - Claude provider 最小接入，前端可选择 provider 与服务端配置好的模型。
 - Memory search 实用性增强，让真实记忆更容易被找回。
-- 记忆写入后可持续保存，并能投影到 workspace 供用户查看。
+- 记忆写入使用现有 Postgres truth path 持续保存，P3 补齐 workspace projection 的标注、重建和一致性检查体验。
 - 上传文件、网页来源、生成文件、日志和 sandbox 输出有稳定引用位置。
 - coding 类任务可受控委派给 Claude Code CLI / Codex CLI 等外部 coding agent。
 - 前端最小补齐，支撑文件上传、artifact 展示、tool log 和长任务状态。
@@ -95,7 +95,7 @@ Skill Learner 不继续做自动成长，先改为 observe-only：
 - 同一 session 中切换 provider 后，仍能利用同一套 memory。
 - `memory_search` 更容易命中真实记忆。
 - `web_search` / `web_fetch` 能带来源回答网页问题。
-- memory 写入后能可靠保存，并能投影到 workspace 供用户查看。
+- memory 写入沿用现有 Postgres ledger truth path，workspace projection 有明确边界并可由用户查看。
 - artifacts / runs 目录约定落地，上传、网页来源和生成文件有稳定引用位置。
 - daily casebook 开始积累真实使用案例。
 
@@ -105,7 +105,7 @@ Skill Learner 不继续做自动成长，先改为 observe-only：
 - OpenAI / Gemini / Claude 至少能完成基础对话验证。
 - 同一 session 切换 provider / 模型后，memory recall 与 scope 行为一致。
 - `web_search` / `web_fetch` 返回带来源的结果。
-- memory 持久保存与 workspace 投影路径可验证。
+- memory truth 已由 Postgres ledger 承担；workspace projection 的自动生成标注、重建路径与一致性检查可验证。
 - P3a 必须产出至少 30 条真实 daily cases。
 
 ### 5.2 P3b：Daily Expansion
