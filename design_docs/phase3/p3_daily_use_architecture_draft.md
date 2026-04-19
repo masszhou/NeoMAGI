@@ -345,6 +345,9 @@ metadata      jsonb
 - 文件进入 artifacts 不代表写入长期 memory。
 - memory 只存“这个文件对用户长期有什么意义”。
 - 用户明确要求保存长期意义时，才写 `memory_source_ledger`。
+- `memory_source_ledger.metadata` 当前已经是 `JSONB NOT NULL DEFAULT '{}'`，schema 层支持 `artifact_ids`，不需要新增 ledger 列。
+- P3a 需要打通受控写入路径：`memory_append` / memory writer 可接收经过校验的 `artifact_ids`，写入 ledger metadata。
+- 写入前必须校验 artifact id 存在，且 principal / visibility 允许当前 memory 引用该 artifact。
 - memory metadata 可带 `artifact_ids`，例如：
 
 ```json
@@ -354,7 +357,7 @@ metadata      jsonb
 }
 ```
 
-暂不新增 `memory_artifact_links` 表。等需要频繁反查“哪些 memory 引用了某 artifact”时再加。
+`artifact_ids` 初版只服务从 memory 指向 artifact。暂不新增 `memory_artifact_links` 表；等需要频繁反查“哪些 memory 引用了某 artifact”时再加。
 
 ## 7. White-Listed CLI Wrappers
 

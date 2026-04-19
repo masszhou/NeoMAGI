@@ -45,7 +45,9 @@ workspace/runs/<run_id>/
 - 文件内容保留在 workspace，DB 只保存 metadata、path、hash、provenance 和状态。
 - Artifact canonical path 一旦写入 index，不轻易移动。
 - Artifact 不自动写入长期 memory；memory 只记录“这个文件对用户长期有什么意义”。
-- P3 初版 memory 可通过 metadata 中的 `artifact_ids` 引用 artifact，暂不新增 `memory_artifact_links` 表。
+- P3 初版 memory 可通过 `memory_source_ledger.metadata.artifact_ids` 引用 artifact；该 metadata 列已是 `JSONB NOT NULL DEFAULT '{}'`，不需要新增 ledger 列。
+- P3a 需要打通受控写入路径与引用校验：写入 memory 前确认 artifact 存在，且 principal / visibility 允许引用。
+- `artifact_ids` 初版只服务 memory -> artifact 引用，暂不新增 `memory_artifact_links` 表。
 - `sha256` 在 artifact 写入或 finalize 时记录，用于 doctor / explicit integrity check；普通 artifact 读取默认不重新 hash。
 - Artifact integrity drift 由 doctor 报告，修复或接受当前 hash 必须通过独立显式命令完成。
 
@@ -75,4 +77,4 @@ workspace/runs/<run_id>/
 - `artifacts.source_run_id` 与 `tool_runs.run_id` 初版可做逻辑关联，不强制外键。
 - 前端 artifact 展示、上传、tool log、long-running status 应以这些表和目录为基础。
 - P3 应新增 doctor artifact integrity check：默认做 path / metadata / optional sampling，`doctor --deep` 才做全量 retained artifact hash 校验。
-- 后续如需要频繁反查 memory-artifact 关系，再评估 `memory_artifact_links`。
+- 后续如需要频繁反查 artifact -> memory 关系，再评估 `memory_artifact_links`。
