@@ -9,7 +9,8 @@ import { MessageInput } from "./MessageInput"
 import { ThreadRail } from "./ThreadRail"
 import { ModeToggle } from "./ModeToggle"
 
-const WS_URL = "ws://localhost:19789/ws"
+// Derive WS URL from current page origin so Vite dev proxy is used
+const WS_URL = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`
 
 export function ChatPage() {
   const connect = useChatStore((state) => state.connect)

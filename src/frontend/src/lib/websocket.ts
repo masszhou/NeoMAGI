@@ -107,15 +107,24 @@ export class WebSocketClient {
           this.options.onMessage(msg)
           return
         }
-        console.warn("[WS] Unknown message type:", msg.type)
+        console.warn("[WS] Unknown message type:", (msg as { type: string }).type)
       } catch {
         console.warn("[WS] Failed to parse message:", event.data)
       }
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event: CloseEvent) => {
       if (this.intentionalClose) {
         this.options.onStatusChange("disconnected")
+        return
+      }
+      // Auth-related close codes or pending auth → treat as auth failure, don't reconnect
+      if (this.pendingAuth || event.code === 4001 || event.code === 4003) {
+        console.log("[WS] Auth close (code=" + event.code + "), not reconnecting")
+        this.pendingAuth = false
+        this.intentionalClose = true
+        this.options.onStatusChange("disconnected")
+        this.options.onAuthFailed?.()
         return
       }
       console.log("[WS] Connection closed")

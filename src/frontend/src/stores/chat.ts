@@ -66,7 +66,7 @@ export interface ChatState {
   requestToSession: Record<string, string>
   connectionStatus: ConnectionStatus
 
-  connect: (url: string) => void
+  connect: (url: string, authToken?: string | null) => void
   disconnect: () => void
   sendMessage: (content: string) => boolean
   setMode: (mode: SessionMode) => void
