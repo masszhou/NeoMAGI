@@ -261,9 +261,8 @@ export const useChatStore = create<ChatState>()(
               useChatStore.getState().loadHistory(activeSessionId)
             },
             onAuthFailed: () => {
-              // Import dynamically to avoid circular deps
-              const { useAuthStore } = require("@/stores/auth")
-              useAuthStore.getState().logout()
+              localStorage.removeItem("neomagi_auth_token")
+              window.location.reload()
             },
           })
           wsClient.connect()

@@ -70,3 +70,22 @@ doc_id_assigned_at: 2026-04-18T21:54:16+02:00
 - `_integration_cleanup` fixture（conftest.py）在每个 integration 测试后 TRUNCATE 所有表，但 principal schema 测试之间存在残留：前一个测试的 owner 未被清理即进入下一个测试
 - 单独运行每个测试均能通过，批量运行则失败 — 典型的测试隔离问题
 - 修复：确认 `_integration_cleanup` 的 TRUNCATE 顺序是否考虑了 FK 依赖（先 bindings/sessions 再 principals），或在 principal schema 测试中显式清理
+
+## OI-M3-03 前端 WS auth 失败后死循环重连，不跳转登录页（已修复）
+
+- 发现于：P2-M3 用户测试 T08（Login UI + JWT 认证）
+- 现象：后端重启后（jwt_secret 重新生成），前端持有 localStorage 中的旧 JWT token，浏览器显示 "Connection lost. Reconnecting..."，不显示登录页面，后端日志出现大量 WS connect/close 循环
+- 复现路径：
+  1. Auth 模式下正常登录成功（JWT 存入 localStorage）
+  2. 重启后端（jwt_secret 重新生成，`.env` 中未固定 `AUTH_JWT_SECRET`）
+  3. 前端带旧 token 发送 auth RPC → 后端返回 `AUTH_FAILED` + close(4001)
+  4. 前端 `onclose` 触发 `attemptReconnect` → 无限重连
+- root cause（3 层）：
+  1. **后端 `_authenticate_ws` 未 catch `WebSocketDisconnect`**：pre-auth 阶段客户端断连冒泡为 uvicorn ERROR traceback（已修复：`12a8ed5`）
+  2. **前端 `WebSocketClient` auth 失败后未停止重连**：`onAuthFailed` 回调被调用，但 `onclose` 也触发了 `attemptReconnect()`，因为 `intentionalClose` 仍为 `false`（已修复：`dcc4e9a`，auth 失败时先 `this.close()` 再回调）
+  3. **前端 `onAuthFailed` 回调使用 `require()` 动态导入 store 在 Vite ESM 环境下不可靠**：`chat.ts` 中 `const { useAuthStore } = require("@/stores/auth")` 的 CommonJS `require` 在 Vite ESM 模式下可能静默失败，导致 `logout()` 未执行、token 未清除、页面未跳转（已修复：改为 `localStorage.removeItem()` + `window.location.reload()`）
+- 涉及代码：
+  - `src/gateway/app.py` `_authenticate_ws()`：catch `WebSocketDisconnect`
+  - `src/lib/websocket.ts` `WebSocketClient`：auth 失败时 `close()` 停止重连
+  - `src/stores/chat.ts` `onAuthFailed` 回调：清 token + 刷新页面
+- Vite proxy 配置（`src/frontend/vite.config.ts`）：auth 模式下前端 dev server 需要 proxy `/auth` 和 `/ws` 到后端，否则 login 和 WS 鉴权均不可达
