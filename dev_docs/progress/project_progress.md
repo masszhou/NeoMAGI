@@ -788,3 +788,34 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
 - Commits: 5bba98f (guide) + c37318a (R1 fix) + 026baea (R2 fix) + 412c1d6 (R2 kwarg fix)
 - Files: 1 新增 (design_docs/phase2/p2_m3_user_test_guide.md), 654+72+124+1 lines
 - Next: 实际测试design_docs/phase2/p2_m3_user_test_guide.md
+
+## 2026-04-18~19 (local) | P2-M3 User Test Execution + Bug Fixes
+- Status: done
+- Done: 完成 P2-M3 用户测试指南全部 T01~T15 测试，发现并修复 8 个 bug，记录 4 个 open issues
+- Test Execution:
+  - T01~T02 (No-Auth baseline): 通过，source_session_id=NULL 为预期行为（CLI 直写无 session）
+  - T03~T06 (Auth mode): 通过，密码 hash 验证、owner 创建、visibility 过滤正常
+  - T07 (Doctor): WARN — DB/file index mismatch，根因为 MEMORY.md h1 preamble 误索引（已修复）
+  - T08 (Login UI): 发现前端 auth 失败死循环重连（3 层 root cause，已修复）
+  - T09 (Memory recall): memory_search 返回 0 条 — lexical search 语义 gap（记录为 OI-M3-04）
+  - T10~T11 (CJK + isolation): 通过
+  - T12 (Daily notes visibility): 通过
+  - T13~T15: 通过
+- Bug Fixes (8 commits):
+  - `4498e10` fix(memory): MEMORY.md h1 preamble 误索引为 curated section
+  - `f3d909b` fix(test): .env 污染 AuthSettings + integration cleanup 从未执行（pytest-asyncio auto mode wraps async defs）
+  - `60e869f` fix(test): getfixturevalue 移到 teardown 避免 event loop 冲突
+  - `6879d0a` fix(test): FK restrict 测试用 raw SQL 绕过 ORM cascade
+  - `12a8ed5` fix(gateway): pre-auth WebSocketDisconnect 静默处理
+  - `dcc4e9a` fix(frontend): auth 失败停止重连循环
+  - `4b877d5` fix(frontend): onAuthFailed 清 token + reload + vite proxy
+  - `188a87b` fix(frontend): type-check 修复 + auth close code 覆盖 + WS URL origin-relative
+- Open Issues (design_docs/phase2/p2_m3_open_issues.md):
+  - OI-M3-01: Jieba 分词器中德混排完全失效，需语言自适应策略
+  - OI-M3-02: .env 污染导致测试失败（已修复，含 integration cleanup 根因分析）
+  - OI-M3-03: 前端 WS auth 失败死循环重连（已修复，含 origin rejection 残留边界）
+  - OI-M3-04: Lexical search 无法匹配语义查询，需 embedding 向量检索
+- Evidence: design_docs/phase2/p2_m3_open_issues.md, 11 commits (4498e10..3bcb4d1)
+- Tests: 1938 unit passed, 41 frontend passed; type-check + build 通过
+- Next: P3 实用化与每日使用功能补全
+- Risk: OI-M3-01/04 影响多语种和语义查询场景的 memory search 可靠性，P3 需引入 embedding 检索
