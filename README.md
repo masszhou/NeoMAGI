@@ -44,7 +44,7 @@ Phase 2 (explicit growth and verifiable evolution) is actively being built:
 - **P2-M2d** (Memory Source Ledger Prep): next — DB append-only ledger writer, dual-write with parity checks
 - **P2-M3** (Principal & Memory Safety): planned — WebChat auth, canonical user identity, memory visibility policy, shared-space safety skeleton
 
-Phase 3 directions (candidate, not yet active): governed self-evolution workflow.
+Phase 3 direction draft (not yet active): daily-use capability completion, with governed self-evolution downgraded from the main line.
 
 ## Tech Stack
 

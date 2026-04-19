@@ -44,7 +44,7 @@ Phase 2（显式成长与可验证进化）正在积极建设中：
 - **P2-M2d**（Memory Source Ledger Prep）：下一步——DB append-only 写入器、双写 + parity 检查
 - **P2-M3**（Principal & Memory Safety）：规划中——WebChat 认证、canonical 用户身份、记忆可见性策略、shared-space 安全骨架
 
-Phase 3 候选方向（尚未激活）：受治理的自我进化工作流。
+Phase 3 方向草稿（尚未激活）：daily-use 能力补完，受治理自我进化从主线降级。
 
 ## 技术栈
 

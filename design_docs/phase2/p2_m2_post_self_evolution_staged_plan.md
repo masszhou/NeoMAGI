@@ -5,9 +5,10 @@ doc_id_assigned_at: 2026-04-11T18:19:25+02:00
 ---
 # P2-M2 Post / P3 Self-Evolution 分阶段计划（提案）
 
-> 状态：proposed
+> 状态：superseded
 > 当前结论：完整 `Self-Evolution CLI Demo V1` 不再排在 `P2-M3` 前；`P2-M3` 前只补两个窄前置：`P2-M2c` 与 `P2-M2d`。
-> 完整 workflow 迁移到 Phase 3 候选方向，不再作为 P2 milestone。
+> 后续口径：Phase 3 当前主线已调整为 daily-use 能力补完；完整 self-evolution workflow 仅保留为历史候选背景，不作为 P3 当前 roadmap。
+> 替代入口：`design_docs/phase3/p3_daily_use_roadmap_draft.md`
 
 ## 1. 结论先行
 
@@ -163,11 +164,11 @@ proposal -> eval -> apply -> rollback / veto -> audit
 - runner contract / fixture 或最多一个真实 runner
 - 不接 Slack、浏览器或外部平台写动作
 
-也就是说，Phase 3 可以重新评估受治理自我演进工作流，但不把 Slack / 群聊 / 外部平台动作作为默认前置。
+也就是说，本文当时建议 Phase 3 重新评估受治理自我演进工作流，但不把 Slack / 群聊 / 外部平台动作作为默认前置。该建议已被后续 P3 daily-use 草稿降级。
 
-## 6. Phase 3：Governed Self-Evolution Workflow
+## 6. 历史候选：Governed Self-Evolution Workflow
 
-完整 `Self-Evolution CLI Demo V1` 迁移到 Phase 3 候选方向。
+完整 `Self-Evolution CLI Demo V1` 当时被移出 P2；截至 2026-04-19，它不再作为 Phase 3 主线，Phase 3 当前草稿改为 daily-use 能力补完。
 
 目标叙述：
 
@@ -212,7 +213,7 @@ proposal -> eval -> apply -> rollback / veto -> audit
 - 原 `P2-M2b` 后立即做完整 CLI demo：撤回。
 - 原首选 scope `procedure_spec governance adapter`：保留，并提升为 `P2-M2c`。
 - ADR 0060 的最小 schema / writer 预备：新增为 `P2-M2d`。
-- 原 `P2-M5`：移出 P2，迁移为 Phase 3 候选方向。
+- 原 `P2-M5`：移出 P2；截至 2026-04-19，不再作为 Phase 3 当前主线。
 - Slack / 群聊 / 外部协作表面：暂不规划。
 
 这样保留“受治理自我演进”的长期方向，同时避免在 P2-M2 hotfix 后立刻引入 external CLI、human gate、memory migration 和 worktree orchestration 的混合风险。
