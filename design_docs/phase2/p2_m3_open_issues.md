@@ -89,6 +89,12 @@ doc_id_assigned_at: 2026-04-18T21:54:16+02:00
   - `src/lib/websocket.ts` `WebSocketClient`：auth 失败时 `close()` 停止重连
   - `src/stores/chat.ts` `onAuthFailed` 回调：清 token + 刷新页面
 - Vite proxy 配置（`src/frontend/vite.config.ts`）：auth 模式下前端 dev server 需要 proxy `/auth` 和 `/ws` 到后端，否则 login 和 WS 鉴权均不可达
+- 已知残留边界：
+  - 后端 WS Origin 拒绝发生在 `websocket.accept()` 之前（`src/gateway/app.py` line 707），浏览器拿到的是 HTTP 403 或 close code 1006，不是应用层 4003
+  - `onopen` 未触发 → `pendingAuth` 为 `false`，前端 `onclose` 的 4001/4003 检查不命中，仍走普通 `attemptReconnect()` 无限重连
+  - 触发条件：`GATEWAY_ALLOWED_ORIGINS` 配置不含前端 origin（配置错误场景，非正常用户流）
+  - 可选修复：后端改为 accept 后发 4003 close，或前端对 auth mode 下"握手未打开即关闭"做有限重试 + 错误提示
+  - 缺少 `WebSocketClient` auth close 行为的直接单测覆盖
 
 ## OI-M3-04 Lexical search 无法匹配语义查询，recall 不及预期
 
