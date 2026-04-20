@@ -830,3 +830,25 @@ doc_id_assigned_at: 2026-04-07T09:55:53+02:00
   - ADR 0062~0065 与 Phase 2 历史文档：同步正式文件链接与“设计基线”措辞
 - Tests: docs-only change; no code test run
 - Next: 如要进入实现，需在 `dev_docs/plans/phase3/` 生成对应实施计划并完成审批。
+
+## 2026-04-20 23:23 (local) | P3-M1 Plan Approval
+- Status: done
+- Done: P3-M1 Daily MVP 实施计划经 10 轮审阅后批准。
+- Scope: `dev_docs/plans/phase3/p3-m1_daily-mvp_2026-04-20.md` — 10 Slices (A-J), 6 Core Decisions, 2 Gates (Code-Complete + Daily-Use), 6 Risks
+- Tests: plan-only; no code test run
+- Next: Phase 0 实施 (Slice A + B)
+
+## 2026-04-21 00:51 (local) | P3-M1 Phase 0: Runtime Profile + Claude Provider
+- Status: done
+- Done: Slice A (runtime profile, daily mode) + Slice B (AnthropicModelClient, Claude provider) 实现并通过 2 轮 post-review fix (4+2 findings)
+- Scope:
+  - `src/config/settings.py`: ClaudeSettings, RuntimeProfileSettings, OpenAI key optional, ProviderSettings 支持 claude
+  - `src/agent/anthropic_client.py`: AnthropicModelClient 完整实现（消息转换、streaming、tool calling、retry）
+  - `src/agent/model_client.py`: ModelMessage provider-neutral 返回类型
+  - `src/gateway/app.py`: daily profile 条件构建, Claude provider 注册
+  - `src/infra/preflight.py`: profile-aware C2/C6/C9/C11, 轻量 soul reconcile
+  - `.env_template`: 新增 RUNTIME_PROFILE, CLAUDE_* 配置
+- Evidence: commits 9a5e088, db16206, 1058e21; log `dev_docs/logs/phase3/p3-m1-phase0_runtime-profile-claude-provider_2026-04-21.md`
+- Tests: 37 new tests (20 runtime profile + 17 anthropic client), 1978 non-integration passed, just lint passed (0 regressions), 41 frontend passed
+- Next: Phase 1 实施 (Slice C model profiles + E web tools + F memory expansion + G artifact DB)
+- Risk: 无
